@@ -165,12 +165,12 @@ class Config(object):
      # press with your keyboard.
      # Possible values: Dvorak, QWERTY.
      keyboard_layout = %(keyboard_layout)s
-     
+
      # Combination of modifiers separated by '+'. All keybindings use the same
      # modifiers.
      # Possible modifiers: Control, Shift, Alt, Super.
      modifiers = %(modifiers)s
-     
+
      # All windows of the same application will be grouped. The windows of one
      # group will be binded to keys with the same prefix. The following option
      # determines in what way different windows will be treated as of one group.
@@ -180,11 +180,11 @@ class Config(object):
      # Group -- will group windows as window manager normally does.
      # None -- will not group at all.
      group_windows_by = %(group_windows_by)s
-     
+
      # Add information about keybinding to the window title.
      # Possible values: Start, End, None
      title_position = %(title_position)s
-     
+
      # Two following options will be used if only title_position is not None.
      # They define charachters which shortcuts in the window titles will
      # be surrounded with. You can set them to arbitary strings or leave them
@@ -192,14 +192,14 @@ class Config(object):
      # quotes.
      left_separator = %(left_separator)s
      right_separator = %(right_separator)s
-     
+
      [RULES]
      # Rules according to which window classes are transformed to abstract
      # window names (AWN), which are used when generating new keybindings.
      # Say, if AWN is 'xterm' than keybinding will more likely 'mod+x'. If it
      # is already in use, the programm will try to bind the window to 'mod+t'.
      # On the RIGHT side there is a regular expression that matches the window
-     # class and the string that replaces it on the LEFT. Replacement string 
+     # class and the string that replaces it on the LEFT. Replacement string
      # can contain '$n' expression (where 0<n<10), which is substituted with
      # the text matched by the nth subexpression.
      # Note: everything after '=' or ':' will be interpreted as a regular
