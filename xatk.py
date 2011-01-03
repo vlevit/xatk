@@ -380,6 +380,15 @@ class Window(object):
 
     shortcut = property(_get_shortcut, _set_shortcut)
 
+class BadWindow(Exception):
+
+    def __init__(self, wid):
+        self.wid = wid
+
+    def __str__(self):
+        return "Bad window with id=%s" % hex(self.wid)
+
+
 class XTool(object):
 
     def __init__(self):
@@ -467,8 +476,7 @@ class XTool(object):
         try:
             name = win.get_full_property(self._atom("_NET_WM_NAME"), 0)
         except error.BadWindow:
-            print_v("bad window (id=%s) on retrieving name" % hex(wid))
-            return None
+            raise BadWindow(wid)
         if name:
             return unicode(name.value, 'utf-8')
         else:
@@ -478,8 +486,7 @@ class XTool(object):
         try:
             cls = self._get_window(wid).get_wm_class()
         except error.BadWindow:
-            print_v("bad window (id=%s) on retrieving application" % hex(wid))
-            return None
+            raise BadWindow(wid)
         if cls:
             return cls[0]
         else:
@@ -489,8 +496,7 @@ class XTool(object):
         try:
             cls = self._get_window(wid).get_wm_class()
         except error.BadWindow:
-            print_v("bad window (id=%s) on retrieving class" % hex(wid))
-            return None
+            raise BadWindow(wid)
         if cls:
             return cls[1]
         else:
@@ -819,7 +825,14 @@ class WindowManager(object):
     def on_window_name_changed(self, wid):
         print_v("window name changed (id=%s)" % hex(wid))
         win = self._windows.get_window(wid)
-        self._update_window_name(win, win.shortcut)
+        # In some rare cases 'window name changed' event is recieved after
+        # 'window closed' event somehow. Check if it has not already been
+        # removed from the window list
+        if win is not None:
+            self._update_window_name(win, win.shortcut)
+        else:
+            print_w(('name of the window with id=%s changed while it is ' +
+                     'not in the window list') % hex(wid))
 
     def _on_windows_close(self, wids):
         wins_closed = self._windows.get_windows(wids)
@@ -853,8 +866,13 @@ class WindowManager(object):
         window = Window()
         window.wid = wid
         window.gid = 0
-        window.name = XTOOL.get_window_name(window.wid)
-        window.awn = self._get_awn(XTOOL.get_window_class(wid))
+        try:
+            window.name = XTOOL.get_window_name(window.wid)
+            window_class = XTOOL.get_window_class(wid)
+        except BadWindow, err:
+            print_e(str(err))
+            return
+        window.awn = self._get_awn(window_class)
         if CONFIG.group_windows_by == 'Group':
             window.gid = XTOOL.get_window_group_id(wid)
         elif CONFIG.group_windows_by == 'Class':
@@ -889,8 +907,10 @@ class WindowManager(object):
     def _update_window_name(self, window, prev_shortcut):
         if CONFIG.title_format == 'None':
             return
-        new_name = XTOOL.get_window_name(window.wid)
-        if new_name is None:
+        try:
+            new_name = XTOOL.get_window_name(window.wid)
+        except BadWindow, err:
+            print_e(str(err))
             return
         edges = CONFIG.title_format.split('%t')
         start = edges[0].replace('%s', prev_shortcut)
