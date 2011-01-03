@@ -140,6 +140,13 @@ class Config(object):
                     message="invalid modifier name '%s'" % mod)
         return mods
 
+    def _parse_title_format(self, title_format):
+        """Check title_format contains not more than one %t and %s"""
+        if title_format.count('%t') > 1 or title_format.count('%s') > 1:
+            raise OptionValueError(message=
+                "only one occurance of %t or %s in title_format is possible")
+        return title_format
+
     rules = list()
 
     _rules = [
@@ -154,9 +161,7 @@ class Config(object):
         'keyboard_layout': ('QWERTY', ('QWERTY', 'Dvorak')),
         'modifiers' : ('Super', _parse_modifiers),
         'group_windows_by' : ('Class', ('Class', 'Group', 'None')),
-        'title_position' : ('End', ('Start', 'End', 'None')),
-        'left_separator' : ('"   /"', None),
-        'right_separator' : ('/', None),
+        'title_format' : ('%t   /%s/', _parse_title_format),
     }
 
     _config_str = re.compile('^ +', re.M).sub('',
@@ -181,17 +186,10 @@ class Config(object):
      # None -- will not group at all.
      group_windows_by = %(group_windows_by)s
 
-     # Add information about keybinding to the window title.
-     # Possible values: Start, End, None
-     title_position = %(title_position)s
-
-     # Two following options will be used if only title_position is not None.
-     # They define charachters which shortcuts in the window titles will
-     # be surrounded with. You can set them to arbitary strings or leave them
-     # empty. To avoid whitespace stripping enclose the whole strings in double
-     # quotes.
-     left_separator = %(left_separator)s
-     right_separator = %(right_separator)s
+     # Include shortcuts to window titles. %%t and %%s will be replaced by
+     # corresponding window title and shortcut accordingly. Set to None to deny
+     # modifying window titles.
+     title_format = %(title_format)s
 
      [RULES]
      # Rules according to which window classes are transformed to abstract
@@ -821,7 +819,7 @@ class WindowManager(object):
     def on_window_name_changed(self, wid):
         print_v("window name changed (id=%s)" % hex(wid))
         win = self._windows.get_window(wid)
-        self._modify_window_name(win, win.shortcut)
+        self._update_window_name(win, win.shortcut)
 
     def _on_windows_close(self, wids):
         wins_closed = self._windows.get_windows(wids)
@@ -848,7 +846,7 @@ class WindowManager(object):
                     else:
                         self._add_shortcut(win)
                     print_v('Rebinding: %s -> %s' % (win.prev_shortcut, win.shortcut))
-                    self._modify_window_name(win, win.prev_shortcut)
+                    self._update_window_name(win, win.prev_shortcut)
                     del win.prev_shortcut
 
     def _on_window_create(self, wid):
@@ -866,7 +864,7 @@ class WindowManager(object):
         self._add_shortcut(window)
         if window.shortcut:
             self._windows.append(window)
-            self._modify_window_name(window)
+            self._update_window_name(window, window.shortcut)
             XTOOL.listen_window_name(window.wid)
 
     def _add_shortcut(self, window):
@@ -888,36 +886,25 @@ class WindowManager(object):
         print_v("window '%s' (id=%s) was binded to '%s'" %
             (window.awn, hex(window.wid), window.shortcut))
 
-    def _modify_window_name(self, window, prev_shortcut=None):
-        if CONFIG.title_position == 'None':
+    def _update_window_name(self, window, prev_shortcut):
+        if CONFIG.title_format == 'None':
             return
         new_name = XTOOL.get_window_name(window.wid)
         if new_name is None:
             return
-        if prev_shortcut:
-            add = CONFIG.left_separator + prev_shortcut + \
-                CONFIG.right_separator
-            if CONFIG.title_position == 'Start':
-                include = new_name.startswith
-                start = len(add)
-                end = len(new_name)
-            else:
-                include = new_name.endswith
-                start = 0
-                end = -len(add)
-            if include(add):
-                new_name = new_name[start:end]
-                if new_name == window.name and prev_shortcut == window.shortcut:
-                        return
-            if new_name != window.name:
-                print_v("window name '%s' (id=%s) changed to '%s'" %
+        edges = CONFIG.title_format.split('%t')
+        start = edges[0].replace('%s', prev_shortcut)
+        end = edges[1].replace('%s', prev_shortcut)
+        if new_name.startswith(start) and new_name.endswith(end):
+            new_name = new_name[len(start):len(new_name)-len(end)]
+            if new_name == window.name and prev_shortcut == window.shortcut:
+                return
+        if new_name != window.name:
+            print_v("window name '%s' (id=%s) changed to '%s'" %
                     (window.name, hex(window.wid), new_name))
         window.name = new_name
-        add = CONFIG.left_separator + window.shortcut + CONFIG.right_separator
-        if CONFIG.title_position == 'Start':
-            new_name = add + new_name
-        else:
-            new_name = new_name + add
+        new_name = CONFIG.title_format.replace('%t', new_name)
+        new_name = new_name.replace('%s', window.shortcut)
         XTOOL.set_window_name(window.wid, new_name)
 
     def _get_awn(self, win_class):
