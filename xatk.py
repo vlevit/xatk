@@ -423,6 +423,9 @@ class XTool(object):
 
     def ungrab_keyboard(self):
         self._display.ungrab_keyboard(X.CurrentTime)
+        # after the keyboard is ungrabbed no release event
+        # will come, so forget all pressed keys
+        self._pressed_keys.clear()
 
     def sync(self):
         self._display.sync()
@@ -579,12 +582,10 @@ class XTool(object):
         if not ok:
             sys.exit(1)
 
-    # two following methods help to recognize fake key events (KeyPress and
-    # KeyRelease) caused by auto-repeat mode
-
     _pressed_keys = set()
 
     def _is_key_press_fake(self, keycode):
+        """Return True if KeyPress event was caused by auto-repeat mode"""
         if keycode in self._pressed_keys:
             return True
         else:
@@ -592,17 +593,17 @@ class XTool(object):
             return False
 
     def _is_key_release_fake(self, keycode):
-        is_mod = self.is_mofifier(keycode)
-        if not self._is_key_pressed(keycode) or is_mod:
-            if not is_mod:
-                try:
-                    self._pressed_keys.remove(keycode)
-                except KeyError: # some key had been pressed before we grabbed
-                    return True  # the keyboard and now it is released while
-                                 # keyboard is still grabbed
-            else: # after keyboard is ungrabbed (modifier is released) no key
-                  # release events will come, so forget all pressed keys
-                self._pressed_keys.clear()
+        """Return True if KeyRelease event was caused by auto-repeat mode"""
+        if self.is_mofifier(keycode):
+            return False                # modifiers are never auto-repeated
+        if not self._is_key_pressed(keycode):
+            try:
+                self._pressed_keys.remove(keycode)
+            except KeyError:
+                # some key had been pressed before the keyboard was grabbed
+                # and now it is released while the keyboard is still
+                # grabbed. Actually this is not a fake event, though ignore it.
+                return True
             return False
         return True
 
@@ -728,6 +729,7 @@ class KeyListener(object):
     RELEASED, PRESSED = 0, 1
 
     def _initial_state(self):
+        self._modifier_sate = self.PRESSED
         self._base_state = self.RELEASED
         self._next_shortcut = None
 
@@ -744,10 +746,11 @@ class KeyListener(object):
             XTOOL.grab_keyboard()
             # only one shortcut for given base key, call corresponding function
             if len(self._bindings[base_key]) == 1:
-                self._initial_state()
                 print_v("keybinding caught: '%s'" % \
                     self._bindings[base_key][0][0])
                 self._bindings[base_key][0][1]()
+                XTOOL.ungrab_keyboard()
+                self._initial_state()
         # suffix key pressed
         elif self._base_state == self.PRESSED:
                 suffix_key = XTOOL.get_key(keycode)
@@ -759,12 +762,12 @@ class KeyListener(object):
                 shortcut = self._last_base + suffix_key
                 try:
                     i = shortcuts.index(shortcut)
-                # unregistered keybinding, ignore it
-                except ValueError: pass
+                except ValueError: pass # unregistered keybinding, ignore it
                 else:
                     print_v("keybinding caught: '%s'" % shortcut)
                     self._bindings[self._last_base][i][1]()
                 finally:
+                    XTOOL.ungrab_keyboard()
                     self._initial_state()
 
     def on_key_release(self, keycode):
@@ -772,8 +775,10 @@ class KeyListener(object):
         # modifier released
         if XTOOL.is_mofifier(keycode):
             print_v("modifier release, keycode: %s" % hex(keycode))
-            XTOOL.ungrab_keyboard()
-            self._initial_state()
+            self._modifier_sate = self.RELEASED
+            if self._base_state == self.RELEASED:
+                XTOOL.ungrab_keyboard()
+                self._initial_state()
         # base key released
         elif key == self._last_base:
             print_v("base key release: %s" % key)
@@ -790,6 +795,9 @@ class KeyListener(object):
                 self._next_shortcut = bindings[next_i][0]
                 print_v("keybinding caught: '%s'" % shortcut)
                 bindings[i][1]()
+                if self._modifier_sate == self.RELEASED:
+                    XTOOL.ungrab_keyboard()
+                    self._initial_state()
         # suffix key released
         else:
             print_v("suffix key release: %s" % key)
