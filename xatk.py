@@ -10,24 +10,36 @@ from Xlib import display, error, protocol, X, Xatom, XK
 
 VERBOSE = True
 def print_v(string):
+    """Print message."""
     if VERBOSE:
         print >> sys.stderr, string
 
 def print_e(string):
+    """Print erorr."""
     print >> sys.stderr, "Error: " + string
 
 def print_w(string):
+    """Print warning."""
     print >> sys.stderr, "Warning: " + string
 
-class ConfigError(Exception): pass
+class ConfigError(Exception):
+    """Base class for Config exceptions."""
+    pass
 
-class ParseError(ConfigError): pass
+class ParseError(ConfigError):
+    """Wrapper for all exceptions of ConfigParser module."""
+    pass
 
-class UnrecognizedOptions(ConfigError): pass
+class UnrecognizedOptions(ConfigError):
+    """Configuration file contains undefined option names."""
 
-class MissedOptions(ConfigError): pass
+class MissedOptions(ConfigError):
+    """Configuration file misses some options."""
+    pass
 
 class OptionValueError(ConfigError):
+    """Raised when option has invalid value."""
+
     def __init__(self, option=None, values=None, message=None):
         # `option` and `values` or only `message` must be specified
         self.option = option
@@ -42,15 +54,20 @@ class OptionValueError(ConfigError):
             return self.message
 
 class Config(object):
+    """Object that reads, parses, and writes a configuration file."""
 
     def __init__(self, filename):
-        self.filename = filename
+        """Remember the filename."""
+        self._filename = filename
         self._parse_options(self._get_defaults(), self._get_valid_opts())
 
     def parse(self):
+        """Parse the configuration file, assign option values to the
+        corresponding `Config` attributes. Can raise ParseError, MissedOptions,
+        UnrecognizedOptions, and OptionValueError exceptions."""
         config = RawConfigParser()
         try:
-            config.read(self.filename)
+            config.read(self._filename)
         except ConfigParser.Error, cpe:
             raise ParseError(str(cpe))
         else:
@@ -70,8 +87,9 @@ class Config(object):
             self._parse_rules([(i[1],i[0]) for i in config.items('RULES')])
 
     def write(self):
+        """Write a default configuration file."""
         try:
-            config_file = open(self.filename, 'wb')
+            config_file = open(self._filename, 'wb')
             config_file.write(self._config_str % self._get_defaults())
         except IOError:
             raise
@@ -154,58 +172,70 @@ class Config(object):
     ]
 
     _defaults = {
-        # format:
-        # option: (default_value, (variants) or parse_function or None),
-        # None means that arbitary string is allowed.
-        # Enclosing double quotes arround arbitary strings will be stripped.
         'keyboard_layout': ('QWERTY', ('QWERTY', 'Dvorak')),
         'modifiers' : ('Super', _parse_modifiers),
         'group_windows_by' : ('Class', ('Class', 'Group', 'None')),
         'title_format' : ('%t   /%s/', _parse_title_format),
-    }
+        }
+    """Dictionary with keys containing options, and values containing
+    tuples of the default value and a list of possible valid values.
+
+    Format:
+    {option: (default_value, (variants) or parse_function or None), ...},
+    where None means that arbitary string is allowed.
+    Enclosing double quotes arround arbitary strings will be stripped.
+    """
 
     _config_str = re.compile('^ +', re.M).sub('',
      """[SETTINGS]
      # Keyboard Layout. This is used to produce keybindings that are easier to
-     # press with your keyboard.
+     # press with your keyboard layout.
      # Possible values: Dvorak, QWERTY.
      keyboard_layout = %(keyboard_layout)s
 
-     # Combination of modifiers separated by '+'. All keybindings use the same
-     # modifiers.
+     # Combination of the modifiers separated by '+'. All keybindings use the
+     # same modifiers.
      # Possible modifiers: Control, Shift, Alt, Super.
      modifiers = %(modifiers)s
 
-     # All windows of the same application will be grouped. The windows of one
-     # group will be binded to keys with the same prefix. The following option
-     # determines in what way different windows will be treated as of one group.
+     # All windows of the same application are grouped. Windows of the same
+     # group are binded to the keys with the same prefix. The following option
+     # specifies what windows should belong to the same group.
      # Possible values: Class, Group, None.
-     # Class -- two windows will belong to the one group if they have equal
-     # window classes. This property can be obtained with xprop.
-     # Group -- will group windows as window manager normally does.
-     # None -- will not group at all.
+     # Class -- two windows belong to the one group if they have equal window
+     # classes. This property can be obtained with xprop utility.
+     # Group -- group windows as window manager normally does.
+     # None -- do not group at all.
      group_windows_by = %(group_windows_by)s
 
-     # Include shortcuts to window titles. %%t and %%s will be replaced by
-     # corresponding window title and shortcut accordingly. Set to None to deny
-     # modifying window titles.
+     # Change window titles, so they include the corresponding shortcuts.
+     # %%t and %%s are replaced by the window title and the shortcut
+     # accordingly. Only one occurance of %%t or %%s in title_format is
+     # possible. Set to None to deny modifying the window titles.
      title_format = %(title_format)s
 
      [RULES]
-     # Rules according to which window classes are transformed to abstract
-     # window names (AWN), which are used when generating new keybindings.
-     # Say, if AWN is 'xterm' than keybinding will more likely 'mod+x'. If it
-     # is already in use, the programm will try to bind the window to 'mod+t'.
-     # On the RIGHT side there is a regular expression that matches the window
-     # class and the string that replaces it on the LEFT. Replacement string
-     # can contain '$n' expression (where 0<n<10), which is substituted with
-     # the text matched by the nth subexpression.
+     # This section specifies rules according to which window classes are
+     # transformed to abstract window names (AWNs). AWNs are used to determine
+     # window shortcuts.  For example, if AWN is 'xterm' than keybinding will
+     # more likely 'mod+x'. If it is already assigned to another window or is
+     # used by an another programm, xatk will try to bind the window to
+     # 'mod+t'. It sorts out the keys until it finds one that is not
+     # occupied. If it turns out there is no such a key, xatk will assign the
+     # window to an arbitary unused keybinding.
+
+     # Format:
+     # replacement_string = class_regexp
+     # Replacement string can contain '$n' expression (where 0<n<10),
+     # which is substituted with the text matched by the nth subexpression.
      # Note: everything after '=' or ':' will be interpreted as a regular
      # expression
      """
     ) + '\n'.join(['='.join((i[1],i[0])) for i in _rules])
 
 class KeyboardLayout(object):
+    """Object holding information about the order of keys of different keboard
+    layouts"""
 
     dvorak = '"<>pyfgcrlaoeuidhtns-;qjkxbmwvz'
     qwerty = 'qwertyuiopassdfghjkl;zxcvbnm,./'
@@ -224,6 +254,9 @@ class KeyboardLayout(object):
         self.indexes = dict(zip(self.keys, range(len(self.keys))))
 
 class ShortcutGenerator(object):
+    """Class which generates shortcuts for specified windows taking into
+    account windows' and window list's information."""
+
     def __init__(self, keyboard_layout):
         self.layout = keyboard_layout
 
@@ -238,7 +271,7 @@ class ShortcutGenerator(object):
         if len(shortcuts) == 1:
             if len(shortcuts[0]) == 1:
                 return shortcuts[0][0]
-        suffixes = [shortcut[1] for shortcut in shortcuts if len(shortcut) == 2]
+        suffixes = [s[1] for s in shortcuts if len(s) == 2]
         most = operator.gt if self._get_direction(base) == 1 else operator.lt
         return reduce(lambda s1, s2: s1 if most(self.layout.indexes[s1],
             self.layout.indexes[s2]) else s2, suffixes)
@@ -273,14 +306,15 @@ class ShortcutGenerator(object):
     _forbidden_bases = set()
 
     def forbid_base(self, base):
-        """Tell `ShortcutGenerator` not to use `base` key for new shortcuts"""
+        """Tell `ShortcutGenerator` not to use the `base` key for new
+        shortcuts"""
         self._forbidden_bases.add(base)
 
     def new_shortcut(self, window_list, window):
-        """Return a new shortcut generated for `window`.  Return None if no new
-        shortcut is possible. `wid` and `gid` attributes of `window` must be
-        set before the call of `new_shortcut`.
+        """Return a new shortcut generated for `window`.
 
+        Return None if no new shortcut is possible. `wid` and `gid` attributes
+        of `window` must be initialised before the method call.
         """
         shortcuts = window_list.get_group_shortcuts(window.gid)
         # prefix, base = None, None
@@ -297,17 +331,16 @@ class ShortcutGenerator(object):
                 return prefix + suffix
 
 class WindowList(list):
-
     """Extend list. `WindowList` elements must be of type `Window`."""
 
     def get_window(self, wid):
-        '''Return a `Window` object with the window id `wid`'''
+        """Return a `Window` object with the window id `wid`"""
         for win in self:
             if win.wid == wid:
                 return win
 
     def get_windows(self, wids):
-        '''Return the `Window` objects with the window ids `wids`'''
+        """Return a list of `Window` objects with the window ids in `wids`"""
         windows = list()
         for win in self:
             if win.wid in wids:
@@ -323,12 +356,11 @@ class WindowList(list):
     def get_group_windows(self, gid):
         """Return a list of `Window` objects with the window group id `gid`
         and sorted by `wid` attribute."""
-        return sorted(
-            [win for win in self if win.gid == gid], key=lambda win: win.wid)
+        return sorted([w for w in self if w.gid == gid], key=lambda w: w.wid)
 
     def get_group_shortcuts(self, gid):
         """Return a list of shortcuts with the window group id `gid`."""
-        return [win.shortcut for win in self if win.gid == gid and win.shortcut]
+        return [w.shortcut for w in self if w.gid == gid and w.shortcut]
 
     def get_all_bases(self):
         """Return a set of all used base keys."""
@@ -341,13 +373,12 @@ class WindowList(list):
         return self.last_unique_group_id
 
 class Window(object):
-
     """An object holding attributes related to a window.
 
     Attributes:
     - `wid`: window id
     - `gid`: window group id
-    - `awn`: abstract window name, from which shortcut is generated
+    - `awn`: abstract window name, from which shortcut is produced
     - `name`: real window name (title)
     - `shortcut`: is represented by a string of length one or two (e.g. 'a' or
       'bn', where 'a' is the base key, 'b' is the prefix, and 'n' is the
@@ -381,6 +412,7 @@ class Window(object):
     shortcut = property(_get_shortcut, _set_shortcut)
 
 class BadWindow(Exception):
+    """Wrapper for Xlib's BadWindow exception"""
 
     def __init__(self, wid):
         self.wid = wid
@@ -390,6 +422,7 @@ class BadWindow(Exception):
 
 
 class XTool(object):
+    """Wrapper for Xlib related methods"""
 
     def __init__(self):
         self._display = display.Display()
@@ -462,7 +495,7 @@ class XTool(object):
         bitmap = self._display.query_keymap()
         return bitmap[keycode / 8] & (1 << (keycode % 8))
 
-    # windows reltaed methods
+    # window reltaed methods
 
     def _atom(self, name):
         return self._display.intern_atom(name)
@@ -542,16 +575,24 @@ class XTool(object):
         self._display.flush()
 
     def listen_window_name(self, wid):
+        """Tell XTool to watch the window name changes. Otherwise
+        `window_name_listener.on_window_name_changed()` will not work."""
         self._get_window(wid).change_attributes(
             event_mask=X.PropertyChangeMask)
 
     def register_key_listener(self, key_listener):
+        """Register `key_listener` which must have `on_key_press` and
+        `on_key_release` methods."""
         self._key_listener = key_listener
 
     def register_window_list_listener(self, window_list_listener):
+        """Register `window_list_listener` which must have
+        `on_window_list_changed` method."""
         self._window_list_listener = window_list_listener
 
     def register_window_name_listener(self, window_name_listener):
+        """Register `window_name_listener` which must have
+        `on_window_name_changed` method."""
         self._window_name_listener = window_name_listener
 
     def _window_list_changed(self, event):
@@ -564,7 +605,7 @@ class XTool(object):
             event.atom == self._atom("WM_NAME"))
 
     def _check_listeners(self):
-        '''Check if all listeners are registered before entering event_loop'''
+        """Check if all listeners are registered before entering event_loop"""
         ok = True
         if not self._key_listener:
             ok = False
@@ -585,7 +626,7 @@ class XTool(object):
     _pressed_keys = set()
 
     def _is_key_press_fake(self, keycode):
-        """Return True if KeyPress event was caused by auto-repeat mode"""
+        """Return True if KeyPress event was caused by auto-repeat mode."""
         if keycode in self._pressed_keys:
             return True
         else:
@@ -593,7 +634,7 @@ class XTool(object):
             return False
 
     def _is_key_release_fake(self, keycode):
-        """Return True if KeyRelease event was caused by auto-repeat mode"""
+        """Return True if KeyRelease event was caused by auto-repeat mode."""
         if self.is_mofifier(keycode):
             return False                # modifiers are never auto-repeated
         if not self._is_key_pressed(keycode):
@@ -608,6 +649,8 @@ class XTool(object):
         return True
 
     def event_loop(self):
+        """Event loop. Before entering the loop all the listeners must be
+        registered wih `XTool.register_xxx_listener()`."""
         self._check_listeners()
         while True:
             event = self._display.next_event()
@@ -626,9 +669,11 @@ class XTool(object):
                     self._key_listener.on_key_release(keycode)
 
 class KeyBinderError(Exception):
-    pass
+    """Base class for KeyBinder exceptions."""
 
 class BadShortcut(KeyBinderError):
+    """Raised when one of the shortcut's symbol has invalid keycode."""
+
     def __init__(self, shortcut):
         self.shortcut = shortcut
 
@@ -637,6 +682,8 @@ class BadShortcut(KeyBinderError):
                 (self.shortcut, self.shortcut[0])
 
 class GrabError(KeyBinderError):
+    """Raised when the key is already grabbed."""
+
     def __init__(self, shortcut, modmask):
         self.shortcut = shortcut
         self.modmask = modmask
@@ -648,16 +695,16 @@ class GrabError(KeyBinderError):
 class KeyBinder(object):
 
     _bindings = dict()
-    '''Complex keybindings: shortcuts of length two are allowed.
+    """Complex keybindings: shortcuts of length two are allowed.
     Multiple pressing a base key call respective callback functions
     alternately.
-    `_bindings format`: {base_key: [(shortcut, callback), ...], ...}
+    Format: {base_key: [(shortcut, callback), ...], ...}
     base_key and bindings[base_key][0] must be equal.
-    Default modifier (passed to `KeyBinder`) is used.'''
+    Default modifier (passed to `self.__init__()`) is used."""
 
     _bindings2 = list()
-    '''Simple keybindings: only one length shortcuts
-    `_bindings2` format: {(shortcut, modmask): callback, ...}'''
+    """Simple keybindings: only one length shortcuts.
+    `_bindings2` format: {(shortcut, modmask): callback, ...}"""
 
     def __init__(self, modifiers):
         self._modmask = self._get_modmask(modifiers)
@@ -680,6 +727,13 @@ class KeyBinder(object):
         return modmask
 
     def bind(self, shortcut, callback, modifiers=None):
+        """Bind `shortcut` to `callback` function.
+
+        When `modifiers` is None, use default modifiers to form
+        keybinding. `shortcut` could have one or two keys. These keybindings
+        are used to bind window actions.
+        With `modifiers` being a list of modifiers only one key shortcuts are
+        allowed. THIS KIND OF KEYBINDINGS ISN'T IMPLEMENTED YET."""
         ec = error.CatchError(error.BadAccess)
         if modifiers is not None:
             keycode = XTOOL.get_keycode(shortcut, use_keysym=True)
@@ -706,6 +760,7 @@ class KeyBinder(object):
                 self._bindings[base_key].append((shortcut, callback))
 
     def unbind(self, shortcut):
+        """Delete keybinding and ungrab key."""
         base_key = shortcut[0]
         binds = self._bindings[base_key]
         i = [bind[0] for bind in binds].index(shortcut)
@@ -716,11 +771,14 @@ class KeyBinder(object):
             XTOOL.ungrab_key(XTOOL.get_keycode(shortcut[0]), self._modmask)
 
     def unbind_all(self):
+        """Delete all the keybindings and ungrab related keys."""
         for base in self._bindings:
             XTOOL.ungrab_key(XTOOL.get_keycode(base), self._modmask)
         self._bindings.clear()
 
 class KeyListener(object):
+    """`KeyListener` recieves the key events, determines the pressed
+    keybindings, and calls the appropriate functions."""
 
     def __init__(self, bindings):
         self._bindings = bindings
@@ -758,7 +816,8 @@ class KeyListener(object):
                     self._initial_state()
                     return
                 print_v("suffix press: %s" % suffix_key)
-                shortcuts = [bind[0] for bind in self._bindings[self._last_base]]
+                shortcuts = [bind[0] for bind in
+                             self._bindings[self._last_base]]
                 shortcut = self._last_base + suffix_key
                 try:
                     i = shortcuts.index(shortcut)
@@ -803,6 +862,9 @@ class KeyListener(object):
             print_v("suffix key release: %s" % key)
 
 class WindowManager(object):
+    """`WindowManager` tracks changes of the window list, their names, assigns
+    the shortcuts to thw new windows."""
+
     def __init__(self, shortcut_generator, key_binder):
         self._shortcut_generator = shortcut_generator
         self._key_binder = key_binder
@@ -843,6 +905,10 @@ class WindowManager(object):
                      'not in the window list') % hex(wid))
 
     def _on_windows_close(self, wids):
+        """Delete the window from the window list and unbind it.
+
+        If the group leader (the first window of the group) was closed, rebind
+        all the other windows of the group."""
         wins_closed = self._windows.get_windows(wids)
         for win_closed in wins_closed:
             self._key_binder.unbind(win_closed.shortcut)
@@ -866,11 +932,15 @@ class WindowManager(object):
                             (win.awn, hex(win.wid), win.shortcut))
                     else:
                         self._add_shortcut(win)
-                    print_v('Rebinding: %s -> %s' % (win.prev_shortcut, win.shortcut))
+                    print_v('Rebinding: %s -> %s' % (win.prev_shortcut,
+                                                     win.shortcut))
                     self._update_window_name(win, win.prev_shortcut)
                     del win.prev_shortcut
 
     def _on_window_create(self, wid):
+        """Create window, initialise its attributes, add to the window list,
+        possibly change its name, and register the window for watching its
+        name."""
         window = Window()
         window.wid = wid
         window.gid = 0
@@ -894,14 +964,17 @@ class WindowManager(object):
             XTOOL.listen_window_name(window.wid)
 
     def _add_shortcut(self, window):
+        """Generate a new unused shortcut for `window` and add the shortcut to
+        the `window`. Set the shortcut to None if all the possible keys are
+        grabbed."""
         while True:
             shortcut = self._shortcut_generator.new_shortcut(
                 self._windows, window)
             if not shortcut:
-                print_w('So many windows, so few keys')
+                print_w('so many windows, so few keys')
+                window.shortcut = None
                 return
             try:
-                # self._key_binder.bind(shortcut, raise_window)
                 self._bind(window.wid, shortcut)
             except GrabError, ge:
                 print_w(str(ge))
@@ -913,6 +986,7 @@ class WindowManager(object):
             (window.awn, hex(window.wid), window.shortcut))
 
     def _update_window_name(self, window, prev_shortcut):
+        """Change the window name, so it includes the shortcut."""
         if CONFIG.title_format == 'None':
             return
         try:
@@ -926,7 +1000,7 @@ class WindowManager(object):
         if new_name.startswith(start) and new_name.endswith(end):
             new_name = new_name[len(start):len(new_name)-len(end)]
             if new_name == window.name and prev_shortcut == window.shortcut:
-                return
+                return                  # window name wasn't changed
         if new_name != window.name:
             print_v("window name '%s' (id=%s) changed to '%s'" %
                     (window.name, hex(window.wid), new_name))
