@@ -3,7 +3,6 @@
 import sys
 import os.path
 import re
-import operator
 import ConfigParser
 from ConfigParser import RawConfigParser
 from Xlib import display, error, protocol, X, Xatom, XK
@@ -237,8 +236,8 @@ class KeyboardLayout(object):
     """Object holding information about the order of keys of different keboard
     layouts"""
 
-    dvorak = '"<>pyfgcrlaoeuidhtns-;qjkxbmwvz'
-    qwerty = 'qwertyuiopassdfghjkl;zxcvbnm,./'
+    dvorak = '\',.pyfgcrlaoeuidhtns;qjkxbmwvz'
+    qwerty = 'qwertyuiopasdfghjkl;zxcvbnm,./'
 
     def __init__(self, layout="QWERTY"):
         if layout == "DVORAK":
@@ -265,43 +264,50 @@ class ShortcutGenerator(object):
         Return 1 if to the right, and -1 if to the left"""
         return 1 if self.layout.indexes[base] % 10 < 5 else -1
 
-    def _last_suffix(self, shortcuts):
-        # base key and prefix key must be equal
-        base = shortcuts[0][0]
-        if len(shortcuts) == 1:
-            if len(shortcuts[0]) == 1:
-                return shortcuts[0][0]
-        suffixes = [s[1] for s in shortcuts if len(s) == 2]
-        most = operator.gt if self._get_direction(base) == 1 else operator.lt
-        return reduce(lambda s1, s2: s1 if most(self.layout.indexes[s1],
-            self.layout.indexes[s2]) else s2, suffixes)
-
-    def _next_suffix_(self, base, suffix):
-        step = self._get_direction(base)
-        next_i = self.layout.indexes[suffix] + step
-        if next_i == len(self.layout.keys):
-            suffix = self.layout.keys[0]
-        else:
-            suffix = self.layout.keys[next_i]
-        if not suffix == base:
-            return suffix
-        else:
-            return None
-
     def _next_suffix(self, shortcuts):
-        suffix = self._last_suffix(shortcuts)
-        return self._next_suffix_(shortcuts[0][0], suffix)
-
-    def _new_base(self, name, all_bases):
-        if len(all_bases) >= 26: # all alphabet keys are already in use
+        """Return a new suffix which can be any symbol from
+        `KeyboardLayout.keys` for a shortcut with the base key
+        `shortcuts[0][0]`."""
+        base = shortcuts[0][0]
+        dir_ = self._get_direction(base)
+        suffixes = [s[1] for s in shortcuts if len(s) == 2]
+        if not suffixes:                # first shortcut with suffix
+            return self.layout.keys[self.layout.indexes[base] + dir_]
+        suffix_indexes = [self.layout.indexes[s] for s in suffixes]
+        # get last suffix index
+        first_index = self.layout.indexes[suffixes[0]]
+        left_indexes  = [i for i in suffix_indexes if i < first_index]
+        right_indexes = [i for i in suffix_indexes if i > first_index]
+        if dir_ == 1:                   # move right
+            if left_indexes:            # crossed over the rightmost symbol
+                last_index = max(left_indexes)
+            elif right_indexes:
+                last_index = max(right_indexes)
+            else:                       # only one suffix
+                last_index = first_index
+        else:                           # move left
+            if right_indexes:           # crossed over the leftmost symbol
+                last_index = min(right_indexes)
+            elif left_indexes:
+                last_index = min(left_indexes)
+            else:                       # only one suffix
+                last_index = first_index
+        next_index = (last_index + dir_) % len(self.layout.keys)
+        next_suffix = self.layout.keys[next_index]
+        if next_suffix == base:         # all suffixes are over
             return None
+        else:
+            return next_suffix
+
+    def _new_base(self, name, bases):
         for base in name:
-            if base not in all_bases and base.isalpha():
+            if base not in bases and base.isalpha():
                 return base
-        free_bases = set(self.layout.keys).symmetric_difference(all_bases)
+        free_bases = set(self.layout.keys).symmetric_difference(bases)
         for base in free_bases:
             if base.isalpha():
                 return base
+        return None                     # all the bases are overed
 
     _forbidden_bases = set()
 
@@ -317,7 +323,6 @@ class ShortcutGenerator(object):
         of `window` must be initialised before the method call.
         """
         shortcuts = window_list.get_group_shortcuts(window.gid)
-        # prefix, base = None, None
         if not shortcuts:
             base = self._new_base(window.awn,
                 window_list.get_all_bases().union(self._forbidden_bases))
