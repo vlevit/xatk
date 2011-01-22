@@ -303,7 +303,7 @@ class Config(object):
      # group are binded to the keys with the same prefix. The following option
      # specifies what windows should belong to the same group.
      # Possible values: Class, Group, None.
-     # Class -- two windows belong to the one group if they have equal window
+     # Class -- two windows belong to the same group if they have equal window
      # classes. This property can be obtained with xprop utility.
      # Group -- group windows as window manager normally does.
      # None -- do not group at all.
@@ -674,7 +674,7 @@ class XTool(object):
         raise_event = protocol.event.ClientMessage(
             client_type=self._atom('_NET_ACTIVE_WINDOW'),
             window=window,
-            data=(32, [2,0,0,0,0]))
+            data=(32, [2, self._last_key_event_time, 0, 0, 0]))
         self._display.send_event(
             self._root,
             raise_event,
@@ -767,10 +767,12 @@ class XTool(object):
                 self._window_name_listener.on_window_name_changed(
                     event.window.id)
             elif event.type == X.KeyPress:
+                self._last_key_event_time = event.time
                 keycode = event.detail
                 if not self._is_key_press_fake(keycode):
                     self._key_listener.on_key_press(keycode)
             elif event.type == X.KeyRelease:
+                self._last_key_event_time = event.time
                 keycode = event.detail
                 if not self._is_key_release_fake(keycode):
                     self._key_listener.on_key_release(keycode)
