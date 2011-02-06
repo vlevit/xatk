@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 
 import sys
+import os
 import os.path
 import re
 import ConfigParser
 from ConfigParser import RawConfigParser
 from Xlib import display, error, protocol, X, Xatom, XK
 from UserDict import DictMixin
+import signal
 
 class OrderedDict(dict, DictMixin):
     """OrderedDict implementaion equivalent to Python2.7's OrderedDict by
@@ -113,7 +115,7 @@ VERBOSE = True
 def print_v(string):
     """Print message."""
     if VERBOSE:
-        print >> sys.stderr, string
+        print >> sys.stderr, unicode(string).encode('utf-8')
 
 def print_e(string):
     """Print erorr."""
@@ -129,30 +131,66 @@ class ConfigError(Exception):
 
 class ParseError(ConfigError):
     """Wrapper for all exceptions of ConfigParser module."""
-    pass
 
-class UnrecognizedOptions(ConfigError):
-    """Configuration file contains undefined option names."""
+class UnrecognizedOption(ConfigError):
+    """Configuration file contains undefined option name."""
 
-class MissedOptions(ConfigError):
-    """Configuration file misses some options."""
-    pass
+    def __init__(self, option):
+        self.option = option
+
+    def __str__(self):
+        return "option '%s' is unrecognized" % self.option
+
+class UnrecognizedSection(ConfigError):
+    """Configuration file contains undefined section name."""
+
+    def __init__(self, section):
+        self.section = section
+
+    def __str__(self):
+        return "section '%s' is unrecognized" % self.section
+
+class MissingOption(ConfigError):
+    """Configuration file misses some option."""
+
+    def __init__(self, option):
+        self.option = option
+
+    def __str__(self):
+        return "option '%s' is missing" % self.option
+
+class MissingSection(ConfigError):
+    """Configuration file misses some section."""
+
+    def __init__(self, section):
+        self.section = section
+
+    def __str__(self):
+        return "section '%s' is missing" % self.section
 
 class OptionValueError(ConfigError):
     """Raised when option has invalid value."""
 
-    def __init__(self, option=None, values=None, message=None):
-        # `option` and `values` or only `message` must be specified
+    def __init__(self, section, option, value, values=None, message=None):
+        """Either possible `values` or `message` must be specified"""
+        self.section = section
         self.option = option
+        self.value = value
         self.values = values
         self.message = message
 
     def __str__(self):
-        if self.option and self.values:
-            return "value of '%s' should be one of the following %s" % \
-                (self.option, str(self.values))
-        elif self.message:
-            return self.message
+        msg = "in '%s' section: invalid value of '%s' option: %s" % \
+              (self.section, self.option, self.value)
+        if self.values is not None:
+            return  msg +  ". The value should be one of the following %s" % \
+                   str(self.values)[1:-1]
+        elif self.message is not None:
+            if self.message != '':
+                msg += ' (' + self.message + ')'
+            return msg
+        else:
+            raise TypeError("Either values or message must be specified")
 
 class Config(object):
     """Object that reads, parses, and writes a configuration file."""
@@ -161,36 +199,45 @@ class Config(object):
         """Remember the filename."""
         self._filename = filename
         self._parse_options(self._get_defaults(), self._get_valid_opts())
+        self.history = OrderedDict()
 
     def parse(self):
         """Parse the configuration file, assign option values to the
-        corresponding `Config` attributes. Can raise ParseError, MissedOptions,
-        UnrecognizedOptions, and OptionValueError exceptions."""
+        corresponding `Config` attributes. Raise ParseError, MissingOption,
+        MissingSection, UnrecognizedOption, UnrecognizedSection and
+        OptionValueError exceptions."""
         config = RawConfigParser(OrderedDict(), OrderedDict)
         try:
             config.read(self._filename)
         except ConfigParser.Error, cpe:
             raise ParseError(str(cpe))
         else:
+            for sec in ('SETTINGS', 'RULES'):
+                if not config.has_section(sec):
+                    raise MissingSection(sec)
             items = dict(config.items('SETTINGS'))
-            print_v(items)
+            print_v("option values: %s" % str(items))
             options = set(items.keys())
             keys = set(self._defaults.keys())
-            missed = keys.difference(options)
+            missing = keys.difference(options)
             unrecognized = options.difference(keys)
-            if missed:
-                raise MissedOptions("options '%s' are missed" % \
-                    str(list(missed)))
-            if unrecognized:
-                raise UnrecognizedOptions("options '%s' are unrecognized" % \
-                    str(list(unrecognized)))
+            for opt in missing:
+                raise MissingOption(opt)
+            for opt in unrecognized:
+                raise UnrecognizedOption(opt)
             self._parse_options(items, self._get_valid_opts())
-            self._parse_rules([(i[1],i[0]) for i in config.items('RULES')])
+            self.rules = self._parse_rules(
+                [(i[1],i[0]) for i in config.items('RULES')])
+            if self.history_length != 0:
+                if not config.has_section('HISTORY'):
+                    raise MissingSection('HISTORY')
+                self.history = self._parse_history(config.items('HISTORY'))
+                self.truncate_history()
 
     def write(self):
         """Write a default configuration file."""
         try:
-            config_file = open(self._filename, 'wb')
+            config_file = open(self._filename, 'w')
             config_file.write(self._config_str % self._get_defaults())
         except IOError:
             raise
@@ -198,11 +245,62 @@ class Config(object):
             if config_file:
                 config_file.close()
 
+    def truncate_history(self):
+        """Leave `self.history_length` last entries in the history."""
+        for i in range(len(self.history) - self.history_length):
+            self.history.popitem(last=False)
+
     def _get_defaults(self):
         return dict([(k, self._defaults[k][0]) for k in self._defaults])
 
     def _get_valid_opts(self):
         return dict([(k, self._defaults[k][1]) for k in self._defaults])
+
+    HISTSECRE = re.compile(
+        '(?P<histsec>^\[HISTORY\].*?)' # the history section
+        '(?:(?=^\[[^]]+\])|\Z)',       # a new section or the end of the string
+        re.DOTALL | re.MULTILINE)
+
+    def write_history(self):
+        """Rewrite a configuration file with the current history."""
+        try:
+            conffile = open(self._filename, 'r')
+            confstr = conffile.read()
+        except IOError: raise
+        else:
+            m = self.HISTSECRE.search(confstr)
+            if m is None:
+                raise MissingSection('HISTORY')
+            else:
+                # format a history section string `histsec`
+                items = []
+                for awn in self.history:
+                    if awn != '':
+                        items.insert(0, awn + ' = ' + self.history[awn])
+                items.insert(0, '[HISTORY]')
+                items.append('\n')
+                histsec = '\n'.join(items)
+                # replace the history section with a new one
+                newconf = confstr[0:m.start('histsec')] + \
+                          histsec + confstr[m.end('histsec'):]
+                # write a new configuration file safely
+                dir_ = os.path.dirname(self._filename)
+                tempfilename = os.path.join(dir_, '.xatkrc.xatk~')
+                try:
+                    tempfile = open(tempfilename, 'w')
+                    tempfile.write(newconf)
+                    tempfile.flush()
+                    os.fsync(tempfile.fileno())
+                    os.rename(tempfilename, self._filename)
+                except (IOError, OSError): raise
+                else: print_v("history was written to %s: %s" % \
+                              (self._filename, str(self.history)))
+                finally:
+                    tempfile.close()
+                    if os.path.exists(tempfile.name):
+                        os.remove(tempfile.name)
+        finally:
+            if conffile: conffile.close()
 
     def _parse_options(self, options, valid_opts):
         for opt in options:
@@ -213,7 +311,7 @@ class Config(object):
                     setattr(self, opt, value)
                     continue
                 else:
-                    raise OptionValueError(opt, possible)
+                    raise OptionValueError('SETTINGS', opt, value, possible)
             elif callable(possible):
                 setattr(self, opt, possible(self, value))
             elif possible is None:
@@ -225,28 +323,30 @@ class Config(object):
                 raise TypeError(type(possible))
 
     def _parse_rules(self, rules):
+        parsed_rules = []
         for item in rules:
             regex, awn = item[0], item[1]
             try:
                 pattern = re.compile(regex, re.I)
             except re.error, e:
-                raise OptionValueError(message="invalid regex " +
-                    "'%s': %s" % (regex, str(e)))
+                raise OptionValueError("RULES", regex, awn,
+                    message="invalid regex: %s" % str(e))
             else:
                 groupsno = len(re.compile('\((?!\?)').findall(regex))
                 tokens = re.compile('\$[0-9]').findall(awn)
                 if tokens:
                     max_groupno = max([int(t[1]) for t in tokens])
                     if max_groupno > groupsno:
-                        raise OptionValueError(
-                            message="invalid group number " +
-                            "(%i) in AWN '%s', maximum is %i for regex '%s'" %
-                            (groupsno, awn, max_groupno, regex))
+                        raise OptionValueError("RULES", regex, awn,
+                            message="invalid group number %i, maximum is %i" %
+                            (groupsno, max_groupno))
                 repl = re.compile('(\$[0-9])').split(awn)
                 for i,t in enumerate(repl):
                     if t and t[0] == '$':
                         repl[i] = int(t[1])
-                self.rules.append((pattern, repl))
+                parsed_rules.append((pattern, repl))
+        print_v("parsed rules %s: " % str(rules))
+        return parsed_rules
 
     def _parse_modifiers(self, modifier_str):
         mods = modifier_str.split('+')
@@ -255,16 +355,38 @@ class Config(object):
             elif mod == 'Alt': mods[i] = 'Mod1'
             elif mod == 'Super': mods[i] = 'Mod4'
             else:
-                raise OptionValueError(
+                raise OptionValueError("SETTINGS", 'modifiers', modifier_str,
                     message="invalid modifier name '%s'" % mod)
         return mods
 
     def _parse_title_format(self, title_format):
         """Check title_format contains not more than one %t and %s"""
         if title_format.count('%t') > 1 or title_format.count('%s') > 1:
-            raise OptionValueError(message=
-                "only one occurance of %t or %s in title_format is possible")
+            raise OptionValueError("SETTINGS", "title_format", title_format,
+                message="only one occurance of %t or %s is possible")
         return title_format
+
+    def _parse_history_length(self, history_length):
+        try:
+            hist_len = int(history_length)
+        except ValueError:
+            raise OptionValueError("HISTORY", "history_length", history_length,
+                                   message="")
+        if(hist_len < 0):
+            raise OptionValueError("HISTORY", "history_length", history_length,
+                                   message="the value must be positive")
+        return hist_len
+
+    def _parse_history(self, history):
+        hist = OrderedDict()
+        for item in history:
+            if len(item[1]) == 1 and item[1].isalpha():
+                hist[item[0]] = item[1]
+            else:
+                print_w("shortcut should be an alphabetical charachter:" +
+                        " '%s', ignored." % item[1])
+        print_v("parsed history: %s" % str(hist))
+        return hist
 
     rules = list()
 
@@ -273,10 +395,11 @@ class Config(object):
     ]
 
     _defaults = {
-        'keyboard_layout': ('QWERTY', ('QWERTY', 'Dvorak')),
-        'modifiers' : ('Super', _parse_modifiers),
+        'keyboard_layout'  : ('QWERTY', ('QWERTY', 'Dvorak')),
+        'modifiers'        : ('Super', _parse_modifiers),
         'group_windows_by' : ('Class', ('Class', 'Group', 'None')),
-        'title_format' : ('%t   /%s/', _parse_title_format),
+        'title_format'     : ('%t   /%s/', _parse_title_format),
+        'history_length'   : ('15', _parse_history_length),
         }
     """Dictionary with keys containing options, and values containing
     tuples of the default value and a list of possible valid values.
@@ -315,6 +438,16 @@ class Config(object):
      # possible. Set to None to deny modifying the window titles.
      title_format = %(title_format)s
 
+     # History of shortcuts is used to avoid them floating between
+     # different windows across the sessions.
+     # Set the value of history_length to 0 to disable the history feature.
+     # It's recommended to set the option to slightly larger value than the
+     # number of windows you use regularly but not much exceeding 20 (because
+     # of the limit of 27 latin letters).
+     history_length = 15
+
+     [HISTORY]
+
      [RULES]
      # This section specifies rules according to which window classes are
      # transformed to abstract window names (AWNs). AWNs are used to determine
@@ -343,10 +476,10 @@ class KeyboardLayout(object):
 
     def __init__(self, layout="QWERTY"):
         if layout == "DVORAK":
-            # dvorak layout with 3 rows by 10 charachters
+            # dvorak layout with 3 rows by 10 characters
             self.keys = self.dvorak
         elif layout == "QWERTY":
-            # qwerty layout with 3 rows by 10 charachters
+            # qwerty layout with 3 rows by 10 characters
             self.keys = self.qwerty
         else:
             print_v("Unknown keyboard layout name: %s. "
@@ -425,11 +558,20 @@ class ShortcutGenerator(object):
         of `window` must be initialised before the method call.
         """
         shortcuts = window_list.get_group_shortcuts(window.gid)
-        if not shortcuts:
-            base = self._new_base(window.awn,
-                window_list.get_all_bases().union(self._forbidden_bases))
-            return base
-        else:
+        if not shortcuts:               # first shortcut for the group
+            allbases = window_list.get_all_bases().union(self._forbidden_bases)
+            if window.awn in CONFIG.history:
+                base = CONFIG.history[window.awn]
+                if base not in allbases:
+                    return base
+            # prefer shortcuts not present in the history
+            bases = allbases.union(set(CONFIG.history.values()))
+            base = self._new_base(window.awn, bases)
+            if base is not None:
+                return base
+            else:
+                return self._new_base(window.awn, allbases)
+        else:                           # the group already has its base key
             prefix = shortcuts[0][0]
             suffix = self._next_suffix(shortcuts)
             if suffix is None:
@@ -472,6 +614,10 @@ class WindowList(list):
     def get_all_bases(self):
         """Return a set of all used base keys."""
         return set([win.shortcut[0] for win in self if win.shortcut])
+
+    def get_all_awns(self):
+        """Return a set of awns of the window list."""
+        return set([win.awn for win in self])
 
     last_unique_group_id = 0
 
@@ -527,6 +673,8 @@ class BadWindow(Exception):
     def __str__(self):
         return "Bad window with id=%s" % hex(self.wid)
 
+class ConnectionClosedError(Exception):
+    """Wrapper for Xlib's ConnectionClosedError exception."""
 
 class XTool(object):
     """Wrapper for Xlib related methods"""
@@ -760,22 +908,25 @@ class XTool(object):
         registered wih `XTool.register_xxx_listener()`."""
         self._check_listeners()
         while True:
-            event = self._display.next_event()
-            if self._window_list_changed(event):
-                self._window_list_listener.on_window_list_changed()
-            elif self._window_name_changed(event):
-                self._window_name_listener.on_window_name_changed(
-                    event.window.id)
-            elif event.type == X.KeyPress:
-                self._last_key_event_time = event.time
-                keycode = event.detail
-                if not self._is_key_press_fake(keycode):
-                    self._key_listener.on_key_press(keycode)
-            elif event.type == X.KeyRelease:
-                self._last_key_event_time = event.time
-                keycode = event.detail
-                if not self._is_key_release_fake(keycode):
-                    self._key_listener.on_key_release(keycode)
+            try:
+                event = self._display.next_event()
+                if self._window_list_changed(event):
+                    self._window_list_listener.on_window_list_changed()
+                elif self._window_name_changed(event):
+                    self._window_name_listener.on_window_name_changed(
+                        event.window.id)
+                elif event.type == X.KeyPress:
+                    self._last_key_event_time = event.time
+                    keycode = event.detail
+                    if not self._is_key_press_fake(keycode):
+                        self._key_listener.on_key_press(keycode)
+                elif event.type == X.KeyRelease:
+                    self._last_key_event_time = event.time
+                    keycode = event.detail
+                    if not self._is_key_release_fake(keycode):
+                        self._key_listener.on_key_release(keycode)
+            except error.ConnectionClosedError, e:
+                raise ConnectionClosedError(str(e))
 
 class KeyBinderError(Exception):
     """Base class for KeyBinder exceptions."""
@@ -1068,6 +1219,8 @@ class WindowManager(object):
             window.gid = self._windows.get_unique_group_id()
         self._add_shortcut(window)
         if window.shortcut:
+            if window.awn not in self._windows.get_all_awns():
+                self._update_history(window)
             self._windows.append(window)
             self._update_window_name(window, window.shortcut)
             XTOOL.listen_window_name(window.wid)
@@ -1118,6 +1271,14 @@ class WindowManager(object):
         new_name = new_name.replace('%s', window.shortcut)
         XTOOL.set_window_name(window.wid, new_name)
 
+    def _update_history(self, window):
+        """Update history with a new window or its new base key."""
+
+        if window.awn in CONFIG.history:
+            del CONFIG.history[window.awn]
+        CONFIG.history[window.awn] = window.shortcut[0]
+        CONFIG.truncate_history()
+
     def _get_awn(self, win_class):
         for ruleno, rule in enumerate(CONFIG.rules):
             pat = rule[0]
@@ -1139,14 +1300,47 @@ class WindowManager(object):
                 return ''.join(repl)
         return win_class
 
+class SignalHandler:
+    """Object holding static methods that implement the program behaviour
+    when recieving a signal."""
+
+    @staticmethod
+    def graceful_exit_handler(sig, frame):
+        """Handle graceful exit of the program."""
+        print_v("Signal recieved: %i" % sig)
+        graceful_exit()
+
+    @staticmethod
+    def save_histoy_handler(sig, frame):
+        """Save the current history to the configuration file."""
+        try:
+            CONFIG.write_history()
+        except (IOError, OSError, MissingSection), e:
+            print_e(str(e))
+
+    @staticmethod
+    def handle_all():
+        """Handle all the signals defined in `SignalHandler` class"""
+        signal.signal(signal.SIGTERM, SignalHandler.graceful_exit_handler)
+        signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
+def graceful_exit(exit_code=0):
+    """Write history and exit."""
+    try:
+        CONFIG.write_history()
+    except (IOError, OSError, MissingSection), e:
+        print_e(str(e))
+    sys.exit(exit_code)
+
 if __name__ == "__main__":
     filename = os.path.expanduser('~/.xatkrc')
     CONFIG = Config(filename)
     if os.path.exists(filename):
         try:
             CONFIG.parse()
-        except (ParseError, OptionValueError, UnrecognizedOptions,
-                MissedOptions), err:
+        except (ParseError, OptionValueError, UnrecognizedOption,
+                UnrecognizedSection, MissingOption, MissingSection), err:
             print_e(str(err))
             sys.exit(1)
     else:
@@ -1161,4 +1355,9 @@ if __name__ == "__main__":
     shortcut_generator = ShortcutGenerator(kblayout)
     keybinder = KeyBinder(CONFIG.modifiers)
     winmanager = WindowManager(shortcut_generator, keybinder)
-    XTOOL.event_loop()
+    SignalHandler.handle_all()
+    try:
+        XTOOL.event_loop()
+    except ConnectionClosedError, e:
+        print_e(str(e))
+        graceful_exit(1)
