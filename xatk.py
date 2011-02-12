@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 
-import sys
-import os
+import ConfigParser
+import logging.handlers
 import os.path
 import re
-import ConfigParser
-from ConfigParser import RawConfigParser
-from Xlib import display, error, protocol, X, Xatom, XK
-from UserDict import DictMixin
 import signal
+import sys
+from ConfigParser import RawConfigParser
+from UserDict import DictMixin
+
+from Xlib import display, error, protocol, X, Xatom, XK
+
 
 class OrderedDict(dict, DictMixin):
     """OrderedDict implementaion equivalent to Python2.7's OrderedDict by
@@ -111,19 +113,173 @@ class OrderedDict(dict, DictMixin):
     def __ne__(self, other):
         return not self == other
 
-VERBOSE = True
-def print_v(string):
-    """Print message."""
-    if VERBOSE:
-        print >> sys.stderr, unicode(string).encode('utf-8')
+class Log(object):
+    """Provide static methods for logging similar to those in the logging
+    module."""
 
-def print_e(string):
-    """Print erorr."""
-    print >> sys.stderr, "Error: " + string
+    CATLEN = 7
+    FMTDICT = OrderedDict(
+        (
+            ('time'     , '%(asctime)-8s,%(msecs)03d'),
+            ('level'    , '%(levelname)-8s'),
+            ('category' , '%(catstr)-' + str(CATLEN) + 's'),
+            ('message'  , '%(message)s')
+        )
+    )
+    MSGFORMAT = ' - '.join(FMTDICT.values())
+    DATEFORMAT = '%H:%M:%S'
 
-def print_w(string):
-    """Print warning."""
-    print >> sys.stderr, "Warning: " + string
+    logger = logging.getLogger('root')
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    logger.addHandler(handler)
+    formatter = logging.Formatter(MSGFORMAT, DATEFORMAT)
+    # don't print exception information to stderr
+    formatter.formatException = lambda exc_info: ''
+    handler.setFormatter(formatter)
+
+    categories = set()
+    categoryFilter = logging.Filter('root')
+    logfileCreated = False
+    rotatingFileHandler = None
+
+    setLevel = handler.setLevel
+
+    class SessionRotatingFileHandler(logging.handlers.RotatingFileHandler):
+        """Handler for logging to a set of files, which switches from one file
+        to the next every new session."""
+
+        def __init__(self, filename, backupCount=0):
+            self.fileExists = os.path.exists(filename)
+            logging.handlers.BaseRotatingHandler.__init__(self, filename, 'a',
+                                                 'utf-8', 0)
+            self.backupCount = backupCount
+
+        def shouldRollover(self, record):
+            if not Log.logfileCreated:
+                Log.logfileCreated = True
+                if self.fileExists:
+                    return True
+            return False
+
+    @staticmethod
+    def _update_extra(kwargs, category):
+        """Update `extra` dictionary in `kwargs` dictionary with `catset`
+        and `catstr` items obtained from `category`. `category` is expected
+        to be a string or a tuple of strings."""
+        if isinstance(category, basestring):
+            catset = set([category])
+        else:
+            catset = set(category)
+        # form `catstr` string with length not larger than CATLEN
+        catlen = (Log.CATLEN - len(catset) + 1) / len(catset)
+        rem    = (Log.CATLEN - len(catset) + 1) % len(catset)
+        cuts = []
+        for i,cat in enumerate(catset):
+            if len(cat) < catlen:
+                rem += catlen - len(cat)
+                cuts.append(cat[:catlen])
+                continue
+            add = rem / (len(catset) - i)
+            cuts.append(cat[:catlen + add])
+            rem -= add
+        catstr = ','.join(cuts)
+        catdict = {'catset': catset, 'catstr': catstr}
+        if 'extra' not in kwargs:
+            kwargs['extra'] = catdict
+        else:
+            kwargs['extra'].update(catdict)
+
+    @staticmethod
+    def configFilter(categories):
+        """Pass only log messages whose `category` attribute belong to the
+        `categories` iterable."""
+        Log.categories = set(categories)
+        def filter_(record):
+            if record.levelno >= logging.WARNING:
+                return True
+            if Log.categories.intersection(record.catset):
+                return True
+            return False
+        Log.categoryFilter.filter = filter_
+        Log.handler.addFilter(Log.categoryFilter)
+
+    @staticmethod
+    def resetFilter():
+        """Remove filter added by `Log.configFilter`."""
+        Log.categories = set()
+        Log.handler.removeFilter(Log.categoryFilter)
+
+    @staticmethod
+    def configFormatter(format):
+        """Change the format string to include the fields in
+        `format` iterable in specified order."""
+        try:
+            fields = map(Log.FMTDICT.__getitem__, format)
+        except KeyError, e:
+            raise ValueError("invalid format string: %s" % e.args[0])
+        Log.formatter = logging.Formatter(' - '.join(fields))
+        # don't print exception information to stderr
+        Log.formatter.formatException = lambda exc_info: ''
+        Log.handler.setFormatter(Log.formatter)
+
+    @staticmethod
+    def resetFormatter():
+        """Reset to the default formatter."""
+        Log.formatter = logging.Formatter(Log.MSGFORMAT, Log.DATEFORMAT)
+        # don't print exception information to stderr
+        Log.formatter.formatException = lambda exc_info: ''
+        Log.handler.setFormatter(Log.formatter)
+
+    @staticmethod
+    def configRotatingFileHandler(filename, backupCount=0):
+        Log.rotatingFileHandler = Log.SessionRotatingFileHandler(
+            filename, backupCount)
+        Log.rotatingFileHandler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(Log.MSGFORMAT, Log.DATEFORMAT)
+        Log.rotatingFileHandler.setFormatter(formatter)
+        Log.logger.addHandler(Log.rotatingFileHandler)
+
+    @staticmethod
+    def resetRotatingFileHandler():
+        if Log.rotatingFileHandler is not None:
+            Log.logger.removeHandler(Log.rotatingFileHandler)
+
+    @staticmethod
+    def debug(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.debug(msg, *args, **kwargs)
+
+    @staticmethod
+    def info(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.info(msg, *args, **kwargs)
+
+    @staticmethod
+    def warning(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.warning(msg, *args, **kwargs)
+
+    @staticmethod
+    def error(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.error(msg, *args, **kwargs)
+
+    @staticmethod
+    def critical(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.critical(msg, *args, **kwargs)
+
+    @staticmethod
+    def exception(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        kwargs['exc_info'] = True
+        Log.logger.error(msg, *args, **kwargs)
+
+    @staticmethod
+    def log(level, category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.log(level, msg, *args, **kwargs)
 
 class ConfigError(Exception):
     """Base class for Config exceptions."""
@@ -216,7 +372,7 @@ class Config(object):
                 if not config.has_section(sec):
                     raise MissingSection(sec)
             items = dict(config.items('SETTINGS'))
-            print_v("option values: %s" % str(items))
+            Log.info('config', 'option values: %s', str(items))
             options = set(items.keys())
             keys = set(self._defaults.keys())
             missing = keys.difference(options)
@@ -293,8 +449,8 @@ class Config(object):
                     os.fsync(tempfile.fileno())
                     os.rename(tempfilename, self._filename)
                 except (IOError, OSError): raise
-                else: print_v("history was written to %s: %s" % \
-                              (self._filename, str(self.history)))
+                else: Log.info('config', 'history was written to %s: %s',
+                              self._filename, str(self.history))
                 finally:
                     tempfile.close()
                     if os.path.exists(tempfile.name):
@@ -345,7 +501,7 @@ class Config(object):
                     if t and t[0] == '$':
                         repl[i] = int(t[1])
                 parsed_rules.append((pattern, repl))
-        print_v("parsed rules %s: " % str(rules))
+        Log.info('config', 'parsed rules: %s', str(rules))
         return parsed_rules
 
     def _parse_modifiers(self, modifier_str):
@@ -383,9 +539,9 @@ class Config(object):
             if len(item[1]) == 1 and item[1].isalpha():
                 hist[item[0]] = item[1]
             else:
-                print_w("shortcut should be an alphabetical charachter:" +
-                        " '%s', ignored." % item[1])
-        print_v("parsed history: %s" % str(hist))
+                Log.warning('config', 'shortcut should be an alphabetical' +
+                "charachter: '%s', ignored", item[1])
+        Log.info('config', 'parsed history: %s', str(hist))
         return hist
 
     rules = list()
@@ -482,9 +638,7 @@ class KeyboardLayout(object):
             # qwerty layout with 3 rows by 10 characters
             self.keys = self.qwerty
         else:
-            print_v("Unknown keyboard layout name: %s. "
-                "QWERTY will be used." % layout)
-            self.keys = self.qwerty
+            raise ValueError("Unknown keyboard layout name: %s" % layout)
         self.indexes = dict(zip(self.keys, range(len(self.keys))))
 
 class ShortcutGenerator(object):
@@ -861,22 +1015,15 @@ class XTool(object):
 
     def _check_listeners(self):
         """Check if all listeners are registered before entering event_loop"""
-        ok = True
-        if not self._key_listener:
-            ok = False
-            print_e('No key_listener')
+        if not hasattr(self, '_key_listener'):
+            raise AttributeError('no key_listener')
         elif not (hasattr(self._key_listener, 'on_key_press') and
                 hasattr(self._key_listener, 'on_key_release')):
-            ok = False
-            print_e('Bad key_listener')
-        if not self._window_list_listener:
-            ok = False
-            print_e('No window_list_listener')
+            raise AttributeError('bad key_listener')
+        if not hasattr(self, '_window_list_listener'):
+            raise AttributeError('no window_list_listener')
         elif not hasattr(self._window_list_listener, 'on_window_list_changed'):
-            ok = False
-            print_e('Bad window_list_listener')
-        if not ok:
-            sys.exit(1)
+            raise AttributeError('bad window_list_listener')
 
     _pressed_keys = set()
 
@@ -1059,12 +1206,12 @@ class KeyListener(object):
             if not base_key or base_key not in self._bindings:
                 self._initial_state()
                 return
-            print_v("base key press: %s" % base_key)
+            Log.debug('keys', 'base key press: %s', base_key)
             self._last_base = base_key
             XTOOL.grab_keyboard()
             # only one shortcut for given base key, call corresponding function
             if len(self._bindings[base_key]) == 1:
-                print_v("keybinding caught: '%s'" % \
+                Log.info('keys', "keybinding caught: '%s'",
                     self._bindings[base_key][0][0])
                 self._bindings[base_key][0][1]()
                 XTOOL.ungrab_keyboard()
@@ -1075,7 +1222,7 @@ class KeyListener(object):
                 if not suffix_key:
                     self._initial_state()
                     return
-                print_v("suffix press: %s" % suffix_key)
+                Log.debug('keys', 'suffix press: %s', suffix_key)
                 shortcuts = [bind[0] for bind in
                              self._bindings[self._last_base]]
                 shortcut = self._last_base + suffix_key
@@ -1083,7 +1230,7 @@ class KeyListener(object):
                     i = shortcuts.index(shortcut)
                 except ValueError: pass # unregistered keybinding, ignore it
                 else:
-                    print_v("keybinding caught: '%s'" % shortcut)
+                    Log.info('keys', "keybinding caught: '%s'", shortcut)
                     self._bindings[self._last_base][i][1]()
                 finally:
                     XTOOL.ungrab_keyboard()
@@ -1093,14 +1240,14 @@ class KeyListener(object):
         key = XTOOL.get_key(keycode)
         # modifier released
         if XTOOL.is_mofifier(keycode):
-            print_v("modifier release, keycode: %s" % hex(keycode))
+            Log.debug('keys', 'modifier release, keycode: 0x%x', keycode)
             self._modifier_sate = self.RELEASED
             if self._base_state == self.RELEASED:
                 XTOOL.ungrab_keyboard()
                 self._initial_state()
         # base key released
         elif key == self._last_base:
-            print_v("base key release: %s" % key)
+            Log.debug('keys', 'base key release: %s', key)
             if self._base_state == self.PRESSED:
                 self._base_state = self.RELEASED
                 if self._next_shortcut is None or \
@@ -1112,14 +1259,14 @@ class KeyListener(object):
                 i = [bind[0] for bind in bindings].index(shortcut)
                 next_i = (i + 1) % len(bindings)
                 self._next_shortcut = bindings[next_i][0]
-                print_v("keybinding caught: '%s'" % shortcut)
+                Log.info('keys', "keybinding caught: '%s'", shortcut)
                 bindings[i][1]()
                 if self._modifier_sate == self.RELEASED:
                     XTOOL.ungrab_keyboard()
                     self._initial_state()
         # suffix key released
         else:
-            print_v("suffix key release: %s" % key)
+            Log.debug('keys', 'suffix key release: %s', key)
 
 class WindowManager(object):
     """`WindowManager` tracks changes of the window list, their names, assigns
@@ -1145,15 +1292,15 @@ class WindowManager(object):
         new_wids = current_wids.difference(old_wids)
         closed_wids = old_wids.difference(current_wids)
         for new_wid in sorted(new_wids):
-            print_v("new window (id=%s)" % hex(new_wid))
+            Log.debug('windows', 'new window (id=0x%x)', new_wid)
             self._on_window_create(new_wid)
         if closed_wids:
-            print_v("windows closed (ids: %s)" %
+            Log.debug('windows', 'windows closed (ids: %s)' %
                 ', '.join(map(hex, closed_wids)))
             self._on_windows_close(sorted(closed_wids))
 
     def on_window_name_changed(self, wid):
-        print_v("window name changed (id=%s)" % hex(wid))
+        Log.debug('windows', 'window name changed (id=0%x)', wid)
         win = self._windows.get_window(wid)
         # In some rare cases 'window name changed' event is recieved after
         # 'window closed' event somehow. Check if it has not already been
@@ -1161,8 +1308,8 @@ class WindowManager(object):
         if win is not None:
             self._update_window_name(win, win.shortcut)
         else:
-            print_w(('name of the window with id=%s changed while it is ' +
-                     'not in the window list') % hex(wid))
+            Log.warning('windows', 'name of the window with id=0%x changed' +
+                        'while it is not in the window list', wid)
 
     def _on_windows_close(self, wids):
         """Delete the window from the window list and unbind it.
@@ -1172,8 +1319,9 @@ class WindowManager(object):
         wins_closed = self._windows.get_windows(wids)
         for win_closed in wins_closed:
             self._key_binder.unbind(win_closed.shortcut)
-            print_v("window '%s' (id=%s) was unbinded from '%s'" %
-                (win_closed.name, hex(win_closed.wid), win_closed.shortcut))
+            Log.info(('keys', 'windows'), "window '%s' (id=0x%x) was " +
+                     "unbinded from '%s'", win_closed.name, win_closed.wid,
+                     win_closed.shortcut)
             del self._windows[self._windows.index(win_closed)]
         groups = set([w.gid for w in wins_closed if len(w.shortcut) == 1])
         for group in groups:
@@ -1188,12 +1336,13 @@ class WindowManager(object):
                     if i == 0: # base key for the group should remain the same
                         win.shortcut = base_key
                         self._bind(win.wid, win.shortcut)
-                        print_v("window '%s' (id=%s) was binded to '%s'" %
-                            (win.awn, hex(win.wid), win.shortcut))
+                        Log.info(('keys', 'windows'), "window '%s' (id=0x%x)" +
+                                 " was binded to '%s'", win.awn, win.wid,
+                                 win.shortcut)
                     else:
                         self._add_shortcut(win)
-                    print_v('Rebinding: %s -> %s' % (win.prev_shortcut,
-                                                     win.shortcut))
+                    Log.info('keys', 'Rebinding: %s -> %s',
+                             win.prev_shortcut, win.shortcut)
                     self._update_window_name(win, win.prev_shortcut)
                     del win.prev_shortcut
 
@@ -1207,8 +1356,8 @@ class WindowManager(object):
         try:
             window.name = XTOOL.get_window_name(window.wid)
             window_class = XTOOL.get_window_class(wid)
-        except BadWindow, err:
-            print_e(str(err))
+        except BadWindow, e:
+            Log.exception('windows', str(e))
             return
         window.awn = self._get_awn(window_class)
         if CONFIG.group_windows_by == 'Group':
@@ -1233,19 +1382,19 @@ class WindowManager(object):
             shortcut = self._shortcut_generator.new_shortcut(
                 self._windows, window)
             if not shortcut:
-                print_w('so many windows, so few keys')
+                Log.info(('windows', 'keys'), 'so many windows, so few keys')
                 window.shortcut = None
                 return
             try:
                 self._bind(window.wid, shortcut)
-            except GrabError, ge:
-                print_w(str(ge))
+            except GrabError, e:
+                Log.exception('keys', str(e))
                 self._shortcut_generator.forbid_base(shortcut[0])
             else:
                 break
         window.shortcut = shortcut
-        print_v("window '%s' (id=%s) was binded to '%s'" %
-            (window.awn, hex(window.wid), window.shortcut))
+        Log.info(('windows', 'keys'), "window '%s' (id=0x%x) was binded to "
+                 "'%s'", window.awn, window.wid, window.shortcut)
 
     def _update_window_name(self, window, prev_shortcut):
         """Change the window name, so it includes the shortcut."""
@@ -1253,8 +1402,8 @@ class WindowManager(object):
             return
         try:
             new_name = XTOOL.get_window_name(window.wid)
-        except BadWindow, err:
-            print_e(str(err))
+        except BadWindow, e:
+            Log.exception('windows', str(e))
             return
         edges = CONFIG.title_format.split('%t')
         start = edges[0].replace('%s', prev_shortcut)
@@ -1264,8 +1413,8 @@ class WindowManager(object):
             if new_name == window.name and prev_shortcut == window.shortcut:
                 return                  # window name wasn't changed
         if new_name != window.name:
-            print_v("window name '%s' (id=%s) changed to '%s'" %
-                    (window.name, hex(window.wid), new_name))
+            Log.info('windows', "window name '%s' (id=0x%x) changed to '%s'",
+                    window.name, window.wid, new_name)
         window.name = new_name
         new_name = CONFIG.title_format.replace('%t', new_name)
         new_name = new_name.replace('%s', window.shortcut)
@@ -1293,8 +1442,8 @@ class WindowManager(object):
                             repl[i] = match.group(token)
                         # actually should be detected by config parser
                         except IndexError:
-                            print_e("invalid group number %i in '%s'" %
-                                (token, ''.join([str(s) for s in repl])))
+                            Log.error("invalid group number %i in '%s'",
+                                token, ''.join([str(s) for s in repl]))
                             del CONFIG.rules[ruleno]
                             continue
                 return ''.join(repl)
@@ -1307,7 +1456,7 @@ class SignalHandler:
     @staticmethod
     def graceful_exit_handler(sig, frame):
         """Handle graceful exit of the program."""
-        print_v("Signal recieved: %i" % sig)
+        Log.info('signals', 'signal recieved: %i', sig)
         graceful_exit()
 
     @staticmethod
@@ -1316,7 +1465,7 @@ class SignalHandler:
         try:
             CONFIG.write_history()
         except (IOError, OSError, MissingSection), e:
-            print_e(str(e))
+            Log.exception('config', str(e))
 
     @staticmethod
     def handle_all():
@@ -1325,12 +1474,14 @@ class SignalHandler:
         signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
-def graceful_exit(exit_code=0):
-    """Write history and exit."""
-    try:
-        CONFIG.write_history()
-    except (IOError, OSError, MissingSection), e:
-        print_e(str(e))
+def graceful_exit(exit_code=0, write_history=True):
+    """Write history, shutdown logging, and exit."""
+    if write_history:
+        try:
+            CONFIG.write_history()
+        except (IOError, OSError, MissingSection), e:
+            Log.exception('config', str(e))
+    logging.shutdown()
     sys.exit(exit_code)
 
 if __name__ == "__main__":
@@ -1340,15 +1491,15 @@ if __name__ == "__main__":
         try:
             CONFIG.parse()
         except (ParseError, OptionValueError, UnrecognizedOption,
-                UnrecognizedSection, MissingOption, MissingSection), err:
-            print_e(str(err))
-            sys.exit(1)
+                UnrecognizedSection, MissingOption, MissingSection), e:
+            Log.exception('config', str(e))
+            graceful_exit(1, False)
     else:
         try:
             CONFIG.write()
-        except IOError, ioe:
-            print_e(str(ioe))
-            sys.exit(1)
+        except IOError, e:
+            Log.exception('config', str(e))
+            graceful_exit(1, False)
 
     XTOOL = XTool()
     kblayout = KeyboardLayout(CONFIG.keyboard_layout)
@@ -1359,5 +1510,5 @@ if __name__ == "__main__":
     try:
         XTOOL.event_loop()
     except ConnectionClosedError, e:
-        print_e(str(e))
+        Log.exception('X', str(e))
         graceful_exit(1)
