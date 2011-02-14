@@ -351,20 +351,26 @@ class OptionValueError(ConfigError):
 class Config(object):
     """Object that reads, parses, and writes a configuration file."""
 
-    def __init__(self, filename):
-        """Remember the filename."""
-        self._filename = filename
-        self._parse_options(self._get_defaults(), self._get_valid_opts())
-        self.history = OrderedDict()
+    history = OrderedDict()
 
-    def parse(self):
+    @staticmethod
+    def set_filename(filename):
+        Config._filename = filename
+
+    @staticmethod
+    def use_defaults():
+        """Set `Config` attributes to default values."""
+        Config._parse_options(Config._get_defaults(), Config._get_valid_opts())
+
+    @staticmethod
+    def parse():
         """Parse the configuration file, assign option values to the
         corresponding `Config` attributes. Raise ParseError, MissingOption,
         MissingSection, UnrecognizedOption, UnrecognizedSection and
         OptionValueError exceptions."""
         config = RawConfigParser(OrderedDict(), OrderedDict)
         try:
-            config.read(self._filename)
+            config.read(Config._filename)
         except ConfigParser.Error, cpe:
             raise ParseError(str(cpe))
         else:
@@ -374,65 +380,70 @@ class Config(object):
             items = dict(config.items('SETTINGS'))
             Log.info('config', 'option values: %s', str(items))
             options = set(items.keys())
-            keys = set(self._defaults.keys())
+            keys = set(Config._defaults.keys())
             missing = keys.difference(options)
             unrecognized = options.difference(keys)
             for opt in missing:
                 raise MissingOption(opt)
             for opt in unrecognized:
                 raise UnrecognizedOption(opt)
-            self._parse_options(items, self._get_valid_opts())
-            self.rules = self._parse_rules(
+            Config._parse_options(items, Config._get_valid_opts())
+            Config.rules = Config._parse_rules(
                 [(i[1],i[0]) for i in config.items('RULES')])
-            if self.history_length != 0:
+            if Config.history_length != 0:
                 if not config.has_section('HISTORY'):
                     raise MissingSection('HISTORY')
-                self.history = self._parse_history(config.items('HISTORY'))
-                self.truncate_history()
+                Config.history = Config._parse_history(config.items('HISTORY'))
+                Config.truncate_history()
 
-    def write(self):
+    @staticmethod
+    def write():
         """Write a default configuration file."""
         try:
-            config_file = open(self._filename, 'w')
-            config_file.write(self._config_str % self._get_defaults())
+            config_file = open(Config._filename, 'w')
+            config_file.write(Config._config_str % Config._get_defaults())
         except IOError:
             raise
         finally:
             if config_file:
                 config_file.close()
 
-    def truncate_history(self):
-        """Leave `self.history_length` last entries in the history."""
-        for i in range(len(self.history) - self.history_length):
-            self.history.popitem(last=False)
+    @staticmethod
+    def truncate_history():
+        """Leave `Config.history_length` last entries in the history."""
+        for i in range(len(Config.history) - Config.history_length):
+            Config.history.popitem(last=False)
 
-    def _get_defaults(self):
-        return dict([(k, self._defaults[k][0]) for k in self._defaults])
+    @staticmethod
+    def _get_defaults():
+        return dict([(k, Config._defaults[k][0]) for k in Config._defaults])
 
-    def _get_valid_opts(self):
-        return dict([(k, self._defaults[k][1]) for k in self._defaults])
+    @staticmethod
+    def _get_valid_opts():
+        return dict([(k, Config._defaults[k][1]) for k in Config._defaults])
 
     HISTSECRE = re.compile(
         '(?P<histsec>^\[HISTORY\].*?)' # the history section
         '(?:(?=^\[[^]]+\])|\Z)',       # a new section or the end of the string
         re.DOTALL | re.MULTILINE)
 
-    def write_history(self):
+    @staticmethod
+    def write_history():
         """Rewrite a configuration file with the current history."""
         try:
-            conffile = open(self._filename, 'r')
+            conffile = open(Config._filename, 'r')
             confstr = conffile.read()
         except IOError: raise
         else:
-            m = self.HISTSECRE.search(confstr)
+            m = Config.HISTSECRE.search(confstr)
             if m is None:
                 raise MissingSection('HISTORY')
             else:
                 # format a history section string `histsec`
                 items = []
-                for awn in self.history:
+                for awn in Config.history:
                     if awn != '':
-                        items.insert(0, awn + ' = ' + self.history[awn])
+                        items.insert(0, awn + ' = ' + Config.history[awn])
                 items.insert(0, '[HISTORY]')
                 items.append('\n')
                 histsec = '\n'.join(items)
@@ -440,17 +451,17 @@ class Config(object):
                 newconf = confstr[0:m.start('histsec')] + \
                           histsec + confstr[m.end('histsec'):]
                 # write a new configuration file safely
-                dir_ = os.path.dirname(self._filename)
+                dir_ = os.path.dirname(Config._filename)
                 tempfilename = os.path.join(dir_, '.xatkrc.xatk~')
                 try:
                     tempfile = open(tempfilename, 'w')
                     tempfile.write(newconf)
                     tempfile.flush()
                     os.fsync(tempfile.fileno())
-                    os.rename(tempfilename, self._filename)
+                    os.rename(tempfilename, Config._filename)
                 except (IOError, OSError): raise
                 else: Log.info('config', 'history was written to %s: %s',
-                              self._filename, str(self.history))
+                              Config._filename, str(Config.history))
                 finally:
                     tempfile.close()
                     if os.path.exists(tempfile.name):
@@ -458,27 +469,29 @@ class Config(object):
         finally:
             if conffile: conffile.close()
 
-    def _parse_options(self, options, valid_opts):
+    @staticmethod
+    def _parse_options(options, valid_opts):
         for opt in options:
             value = options[opt]
             possible = valid_opts[opt]
             if isinstance(possible, tuple):
                 if value in possible:
-                    setattr(self, opt, value)
+                    setattr(Config, opt, value)
                     continue
                 else:
                     raise OptionValueError('SETTINGS', opt, value, possible)
             elif callable(possible):
-                setattr(self, opt, possible(self, value))
+                setattr(Config, opt, possible(value))
             elif possible is None:
                 if value.startswith('"') and value.endswith('"'):
                     value = value[1:-1]
-                setattr(self, opt, value)
+                setattr(Config, opt, value)
                 continue
             else:
                 raise TypeError(type(possible))
 
-    def _parse_rules(self, rules):
+    @staticmethod
+    def _parse_rules(rules):
         parsed_rules = []
         for item in rules:
             regex, awn = item[0], item[1]
@@ -504,7 +517,7 @@ class Config(object):
         Log.info('config', 'parsed rules: %s', str(rules))
         return parsed_rules
 
-    def _parse_modifiers(self, modifier_str):
+    def _parse_modifiers(modifier_str):
         mods = modifier_str.split('+')
         for i, mod in enumerate(mods):
             if mod in ('Control', 'Shift'): pass
@@ -515,14 +528,14 @@ class Config(object):
                     message="invalid modifier name '%s'" % mod)
         return mods
 
-    def _parse_title_format(self, title_format):
+    def _parse_title_format(title_format):
         """Check title_format contains not more than one %t and %s"""
         if title_format.count('%t') > 1 or title_format.count('%s') > 1:
             raise OptionValueError("SETTINGS", "title_format", title_format,
                 message="only one occurance of %t or %s is possible")
         return title_format
 
-    def _parse_history_length(self, history_length):
+    def _parse_history_length(history_length):
         try:
             hist_len = int(history_length)
         except ValueError:
@@ -533,7 +546,8 @@ class Config(object):
                                    message="the value must be positive")
         return hist_len
 
-    def _parse_history(self, history):
+    @staticmethod
+    def _parse_history(history):
         hist = OrderedDict()
         for item in history:
             if len(item[1]) == 1 and item[1].isalpha():
@@ -714,12 +728,12 @@ class ShortcutGenerator(object):
         shortcuts = window_list.get_group_shortcuts(window.gid)
         if not shortcuts:               # first shortcut for the group
             allbases = window_list.get_all_bases().union(self._forbidden_bases)
-            if window.awn in CONFIG.history:
-                base = CONFIG.history[window.awn]
+            if window.awn in Config.history:
+                base = Config.history[window.awn]
                 if base not in allbases:
                     return base
             # prefer shortcuts not present in the history
-            bases = allbases.union(set(CONFIG.history.values()))
+            bases = allbases.union(set(Config.history.values()))
             base = self._new_base(window.awn, bases)
             if base is not None:
                 return base
@@ -830,96 +844,111 @@ class BadWindow(Exception):
 class ConnectionClosedError(Exception):
     """Wrapper for Xlib's ConnectionClosedError exception."""
 
-class XTool(object):
+class Xtool(object):
     """Wrapper for Xlib related methods"""
 
-    def __init__(self):
-        self._display = display.Display()
-        self._root = self._display.screen().root
-        self._root.change_attributes(event_mask=X.KeyPressMask |
+    @staticmethod
+    def connect(displaystr=None):
+        Xtool._display = display.Display(displaystr)
+        Xtool._root = Xtool._display.screen().root
+        Xtool._root.change_attributes(event_mask=X.KeyPressMask |
             X.KeyReleaseMask | X.PropertyChangeMask)
-        self._init_mod_keycodes()
+        Xtool._init_mod_keycodes()
 
     # keyboard related methods
 
-    def grab_key(self, keycode, mask, onerror=None):
-        self._root.grab_key(keycode, mask,
+    @staticmethod
+    def grab_key(keycode, mask, onerror=None):
+        Xtool._root.grab_key(keycode, mask,
             1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
-        self._root.grab_key(keycode, mask | X.Mod2Mask,
+        Xtool._root.grab_key(keycode, mask | X.Mod2Mask,
             1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
-        self._root.grab_key(keycode, mask | X.LockMask,
+        Xtool._root.grab_key(keycode, mask | X.LockMask,
             1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
-        self._root.grab_key(keycode, mask | X.Mod2Mask | X.LockMask,
+        Xtool._root.grab_key(keycode, mask | X.Mod2Mask | X.LockMask,
             1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
 
-    def ungrab_key(self, keycode, mask, onerror=None):
-        self._root.ungrab_key(keycode, mask, onerror=onerror)
-        self._root.ungrab_key(keycode, mask | X.Mod2Mask, onerror=onerror)
-        self._root.ungrab_key(keycode, mask | X.LockMask, onerror=onerror)
-        self._root.ungrab_key(keycode, mask | X.Mod2Mask | X.LockMask,
+    @staticmethod
+    def ungrab_key(keycode, mask, onerror=None):
+        Xtool._root.ungrab_key(keycode, mask, onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | X.Mod2Mask, onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | X.LockMask, onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | X.Mod2Mask | X.LockMask,
             onerror=onerror)
 
-    def grab_keyboard(self):
-        self._root.grab_keyboard(1, X.GrabModeAsync, X.GrabModeAsync,
+    @staticmethod
+    def grab_keyboard():
+        Xtool._root.grab_keyboard(1, X.GrabModeAsync, X.GrabModeAsync,
             X.CurrentTime)
 
-    def ungrab_keyboard(self):
-        self._display.ungrab_keyboard(X.CurrentTime)
+    @staticmethod
+    def ungrab_keyboard():
+        Xtool._display.ungrab_keyboard(X.CurrentTime)
         # after the keyboard is ungrabbed no release event
         # will come, so forget all pressed keys
-        self._pressed_keys.clear()
+        Xtool._pressed_keys.clear()
 
-    def sync(self):
-        self._display.sync()
+    @staticmethod
+    def sync():
+        Xtool._display.sync()
 
-    def get_keycode(self, key, use_keysym=False):
+    @staticmethod
+    def get_keycode(key, use_keysym=False):
         # Since keysyms are backward compatible with ASCII we can use ord()
         # instead of XK.string_to_keysym() to avoid translation of
         # non-alphabetical symbols to keysym strings previosly
         keysym = XK.string_to_keysym(key) if use_keysym else ord(key)
-        return self._display.keysym_to_keycode(keysym)
+        return Xtool._display.keysym_to_keycode(keysym)
 
-    def get_key(self, keycode):
-        return XK.keysym_to_string(self._display.keycode_to_keysym(keycode, 0))
+    @staticmethod
+    def get_key(keycode):
+        return XK.keysym_to_string(Xtool._display.keycode_to_keysym(keycode, 0))
 
-    def _init_mod_keycodes(self):
-        self._mod_keycodes = set(
+    @staticmethod
+    def _init_mod_keycodes():
+        Xtool._mod_keycodes = set(
             [
-                self.get_keycode('Shift_L', True),
-                self.get_keycode('Shift_R', True),
-                self.get_keycode('Control_L', True),
-                self.get_keycode('Control_R', True),
-                self.get_keycode('Alt_L', True),
-                self.get_keycode('Alt_R', True),
-                self.get_keycode('Super_L', True),
-                self.get_keycode('Super_R', True)
+                Xtool.get_keycode('Shift_L', True),
+                Xtool.get_keycode('Shift_R', True),
+                Xtool.get_keycode('Control_L', True),
+                Xtool.get_keycode('Control_R', True),
+                Xtool.get_keycode('Alt_L', True),
+                Xtool.get_keycode('Alt_R', True),
+                Xtool.get_keycode('Super_L', True),
+                Xtool.get_keycode('Super_R', True)
             ])
-        if 0 in self._mod_keycodes:
-            self._mod_keycodes.remove(0)
+        if 0 in Xtool._mod_keycodes:
+            Xtool._mod_keycodes.remove(0)
 
-    def is_mofifier(self, keycode):
-        return keycode in self._mod_keycodes
+    @staticmethod
+    def is_mofifier(keycode):
+        return keycode in Xtool._mod_keycodes
 
-    def _is_key_pressed(self, keycode):
-        bitmap = self._display.query_keymap()
+    @staticmethod
+    def _is_key_pressed(keycode):
+        bitmap = Xtool._display.query_keymap()
         return bitmap[keycode / 8] & (1 << (keycode % 8))
 
     # window reltaed methods
 
-    def _atom(self, name):
-        return self._display.intern_atom(name)
+    @staticmethod
+    def _atom(name):
+        return Xtool._display.intern_atom(name)
 
-    def get_window_list(self):
-        return self._root.get_full_property(
-            self._atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
+    @staticmethod
+    def get_window_list():
+        return Xtool._root.get_full_property(
+            Xtool._atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
 
-    def _get_window(self, wid):
-        return self._display.create_resource_object("window", wid)
+    @staticmethod
+    def _get_window(wid):
+        return Xtool._display.create_resource_object("window", wid)
 
-    def get_window_name(self, wid):
-        win = self._get_window(wid)
+    @staticmethod
+    def get_window_name(wid):
+        win = Xtool._get_window(wid)
         try:
-            name = win.get_full_property(self._atom("_NET_WM_NAME"), 0)
+            name = win.get_full_property(Xtool._atom("_NET_WM_NAME"), 0)
         except error.BadWindow:
             raise BadWindow(wid)
         if name:
@@ -927,9 +956,10 @@ class XTool(object):
         else:
             return unicode(win.get_wm_name())
 
-    def get_window_application(self, wid):
+    @staticmethod
+    def get_window_application(wid):
         try:
-            cls = self._get_window(wid).get_wm_class()
+            cls = Xtool._get_window(wid).get_wm_class()
         except error.BadWindow:
             raise BadWindow(wid)
         if cls:
@@ -937,9 +967,10 @@ class XTool(object):
         else:
             return ''
 
-    def get_window_class(self, wid):
+    @staticmethod
+    def get_window_class(wid):
         try:
-            cls = self._get_window(wid).get_wm_class()
+            cls = Xtool._get_window(wid).get_wm_class()
         except error.BadWindow:
             raise BadWindow(wid)
         if cls:
@@ -947,101 +978,115 @@ class XTool(object):
         else:
             return ''
 
-    def get_window_group_id(self, wid):
-        hints = self._get_window(wid).get_wm_hints()
+    @staticmethod
+    def get_window_group_id(wid):
+        hints = Xtool._get_window(wid).get_wm_hints()
         group_id = 0
         if hints:
             group_id = hints.window_group.id
         return group_id
 
-    def _set_property(self, wid, prop, name):
+    @staticmethod
+    def _set_property(wid, prop, name):
         if not isinstance(name, unicode):
             raise TypeError('an unicode string is required')
-        win = self._get_window(wid)
+        win = Xtool._get_window(wid)
         win.change_property(
-            self._atom(prop),
-            self._atom('UTF8_STRING'),
+            Xtool._atom(prop),
+            Xtool._atom('UTF8_STRING'),
             8,
             name.encode('utf-8'),
             mode=X.PropModeReplace);
 
-    def set_window_name(self, wid, name):
-        self._set_property(wid, '_NET_WM_NAME', name)
+    @staticmethod
+    def set_window_name(wid, name):
+        Xtool._set_property(wid, '_NET_WM_NAME', name)
 
-    def set_window_icon_name(self, wid, name):
-        self._set_property(wid, '_NET_WM_ICON_NAME', name)
+    @staticmethod
+    def set_window_icon_name(wid, name):
+        Xtool._set_property(wid, '_NET_WM_ICON_NAME', name)
 
-    def raise_window(self, wid):
-        window = self._get_window(wid)
+    @staticmethod
+    def raise_window(wid):
+        window = Xtool._get_window(wid)
         raise_event = protocol.event.ClientMessage(
-            client_type=self._atom('_NET_ACTIVE_WINDOW'),
+            client_type=Xtool._atom('_NET_ACTIVE_WINDOW'),
             window=window,
-            data=(32, [2, self._last_key_event_time, 0, 0, 0]))
-        self._display.send_event(
-            self._root,
+            data=(32, [2, Xtool._last_key_event_time, 0, 0, 0]))
+        Xtool._display.send_event(
+            Xtool._root,
             raise_event,
             event_mask=X.SubstructureRedirectMask or X.SubstructureNotifyMask)
-        self._display.flush()
+        Xtool._display.flush()
 
-    def listen_window_name(self, wid):
-        """Tell XTool to watch the window name changes. Otherwise
+    @staticmethod
+    def listen_window_name(wid):
+        """Tell Xtool to watch the window name changes. Otherwise
         `window_name_listener.on_window_name_changed()` will not work."""
-        self._get_window(wid).change_attributes(
+        Xtool._get_window(wid).change_attributes(
             event_mask=X.PropertyChangeMask)
 
-    def register_key_listener(self, key_listener):
+    @staticmethod
+    def register_key_listener(key_listener):
         """Register `key_listener` which must have `on_key_press` and
         `on_key_release` methods."""
-        self._key_listener = key_listener
+        Xtool._key_listener = key_listener
 
-    def register_window_list_listener(self, window_list_listener):
+    @staticmethod
+    def register_window_list_listener(window_list_listener):
         """Register `window_list_listener` which must have
         `on_window_list_changed` method."""
-        self._window_list_listener = window_list_listener
+        Xtool._window_list_listener = window_list_listener
 
-    def register_window_name_listener(self, window_name_listener):
+    @staticmethod
+    def register_window_name_listener(window_name_listener):
         """Register `window_name_listener` which must have
         `on_window_name_changed` method."""
-        self._window_name_listener = window_name_listener
+        Xtool._window_name_listener = window_name_listener
 
-    def _window_list_changed(self, event):
+    @staticmethod
+    def _window_list_changed(event):
         return event.type == X.PropertyNotify and \
-            event.atom == self._atom("_NET_CLIENT_LIST")
+            event.atom == Xtool._atom("_NET_CLIENT_LIST")
 
-    def _window_name_changed(self, event):
+    @staticmethod
+    def _window_name_changed(event):
         return event.type == X.PropertyNotify and \
-            (event.atom == self._atom("_NET_WM_NAME") or
-            event.atom == self._atom("WM_NAME"))
+            (event.atom == Xtool._atom("_NET_WM_NAME") or
+            event.atom == Xtool._atom("WM_NAME"))
 
-    def _check_listeners(self):
+    @staticmethod
+    def _check_listeners():
         """Check if all listeners are registered before entering event_loop"""
-        if not hasattr(self, '_key_listener'):
+        if not hasattr(Xtool, '_key_listener'):
             raise AttributeError('no key_listener')
-        elif not (hasattr(self._key_listener, 'on_key_press') and
-                hasattr(self._key_listener, 'on_key_release')):
+        elif not (hasattr(Xtool._key_listener, 'on_key_press') and
+                hasattr(Xtool._key_listener, 'on_key_release')):
             raise AttributeError('bad key_listener')
-        if not hasattr(self, '_window_list_listener'):
+        if not hasattr(Xtool, '_window_list_listener'):
             raise AttributeError('no window_list_listener')
-        elif not hasattr(self._window_list_listener, 'on_window_list_changed'):
+        elif not hasattr(Xtool._window_list_listener, 'on_window_list_changed'):
             raise AttributeError('bad window_list_listener')
 
     _pressed_keys = set()
 
-    def _is_key_press_fake(self, keycode):
+    @staticmethod
+    def _is_key_press_fake(keycode):
         """Return True if KeyPress event was caused by auto-repeat mode."""
-        if keycode in self._pressed_keys:
+        if keycode in Xtool._pressed_keys:
             return True
         else:
-            self._pressed_keys.add(keycode)
+            Xtool._pressed_keys.add(keycode)
             return False
 
-    def _is_key_release_fake(self, keycode):
+    @staticmethod
+    def _is_key_release_fake(keycode):
         """Return True if KeyRelease event was caused by auto-repeat mode."""
-        if self.is_mofifier(keycode):
+        if Xtool.is_mofifier(keycode):
             return False                # modifiers are never auto-repeated
-        if not self._is_key_pressed(keycode):
+        if not Xtool._is_key_pressed(keycode):
             try:
-                self._pressed_keys.remove(keycode)
+                Xtool._pressed_keys.remove(keycode)
             except KeyError:
                 # some key had been pressed before the keyboard was grabbed
                 # and now it is released while the keyboard is still
@@ -1050,28 +1095,29 @@ class XTool(object):
             return False
         return True
 
-    def event_loop(self):
+    @staticmethod
+    def event_loop():
         """Event loop. Before entering the loop all the listeners must be
-        registered wih `XTool.register_xxx_listener()`."""
-        self._check_listeners()
+        registered wih `Xtool.register_xxx_listener()`."""
+        Xtool._check_listeners()
         while True:
             try:
-                event = self._display.next_event()
-                if self._window_list_changed(event):
-                    self._window_list_listener.on_window_list_changed()
-                elif self._window_name_changed(event):
-                    self._window_name_listener.on_window_name_changed(
+                event = Xtool._display.next_event()
+                if Xtool._window_list_changed(event):
+                    Xtool._window_list_listener.on_window_list_changed()
+                elif Xtool._window_name_changed(event):
+                    Xtool._window_name_listener.on_window_name_changed(
                         event.window.id)
                 elif event.type == X.KeyPress:
-                    self._last_key_event_time = event.time
+                    Xtool._last_key_event_time = event.time
                     keycode = event.detail
-                    if not self._is_key_press_fake(keycode):
-                        self._key_listener.on_key_press(keycode)
+                    if not Xtool._is_key_press_fake(keycode):
+                        Xtool._key_listener.on_key_press(keycode)
                 elif event.type == X.KeyRelease:
-                    self._last_key_event_time = event.time
+                    Xtool._last_key_event_time = event.time
                     keycode = event.detail
-                    if not self._is_key_release_fake(keycode):
-                        self._key_listener.on_key_release(keycode)
+                    if not Xtool._is_key_release_fake(keycode):
+                        Xtool._key_listener.on_key_release(keycode)
             except error.ConnectionClosedError, e:
                 raise ConnectionClosedError(str(e))
 
@@ -1116,7 +1162,7 @@ class KeyBinder(object):
     def __init__(self, modifiers):
         self._modmask = self._get_modmask(modifiers)
         self._key_listener = KeyListener(self._bindings)
-        XTOOL.register_key_listener(self._key_listener)
+        Xtool.register_key_listener(self._key_listener)
 
     def _get_modmask(self, modifiers):
         modmask = 0
@@ -1143,21 +1189,21 @@ class KeyBinder(object):
         allowed. THIS KIND OF KEYBINDINGS ISN'T IMPLEMENTED YET."""
         ec = error.CatchError(error.BadAccess)
         if modifiers is not None:
-            keycode = XTOOL.get_keycode(shortcut, use_keysym=True)
+            keycode = Xtool.get_keycode(shortcut, use_keysym=True)
             if not keycode:
                 raise BadShortcut(shortcut)
             modmask = self._get_modmask(modifiers)
-            XTOOL.grab_key(keycode, modmask, onerror=ec)
-            XTOOL.sync()
+            Xtool.grab_key(keycode, modmask, onerror=ec)
+            Xtool.sync()
             if ec.get_error():
                 raise GrabError(shortcut, self._modmask)
             self._bindings2[(shortcut, modmask)] = callback
         else:
-            keycode = XTOOL.get_keycode(shortcut[0])
+            keycode = Xtool.get_keycode(shortcut[0])
             if not keycode:
                 raise BadShortcut(shortcut)
-            XTOOL.grab_key(keycode, self._modmask, onerror=ec)
-            XTOOL.sync()
+            Xtool.grab_key(keycode, self._modmask, onerror=ec)
+            Xtool.sync()
             if ec.get_error():
                 raise GrabError(shortcut, self._modmask)
             base_key = shortcut[0]
@@ -1175,12 +1221,12 @@ class KeyBinder(object):
         if not binds:
             del self._bindings[base_key]
         if len(shortcut) == 1:
-            XTOOL.ungrab_key(XTOOL.get_keycode(shortcut[0]), self._modmask)
+            Xtool.ungrab_key(Xtool.get_keycode(shortcut[0]), self._modmask)
 
     def unbind_all(self):
         """Delete all the keybindings and ungrab related keys."""
         for base in self._bindings:
-            XTOOL.ungrab_key(XTOOL.get_keycode(base), self._modmask)
+            Xtool.ungrab_key(Xtool.get_keycode(base), self._modmask)
         self._bindings.clear()
 
 class KeyListener(object):
@@ -1202,23 +1248,23 @@ class KeyListener(object):
         # base key pressed
         if self._base_state == self.RELEASED:
             self._base_state = self.PRESSED
-            base_key = XTOOL.get_key(keycode)
+            base_key = Xtool.get_key(keycode)
             if not base_key or base_key not in self._bindings:
                 self._initial_state()
                 return
             Log.debug('keys', 'base key press: %s', base_key)
             self._last_base = base_key
-            XTOOL.grab_keyboard()
+            Xtool.grab_keyboard()
             # only one shortcut for given base key, call corresponding function
             if len(self._bindings[base_key]) == 1:
                 Log.info('keys', "keybinding caught: '%s'",
                     self._bindings[base_key][0][0])
                 self._bindings[base_key][0][1]()
-                XTOOL.ungrab_keyboard()
+                Xtool.ungrab_keyboard()
                 self._initial_state()
         # suffix key pressed
         elif self._base_state == self.PRESSED:
-                suffix_key = XTOOL.get_key(keycode)
+                suffix_key = Xtool.get_key(keycode)
                 if not suffix_key:
                     self._initial_state()
                     return
@@ -1233,17 +1279,17 @@ class KeyListener(object):
                     Log.info('keys', "keybinding caught: '%s'", shortcut)
                     self._bindings[self._last_base][i][1]()
                 finally:
-                    XTOOL.ungrab_keyboard()
+                    Xtool.ungrab_keyboard()
                     self._initial_state()
 
     def on_key_release(self, keycode):
-        key = XTOOL.get_key(keycode)
+        key = Xtool.get_key(keycode)
         # modifier released
-        if XTOOL.is_mofifier(keycode):
+        if Xtool.is_mofifier(keycode):
             Log.debug('keys', 'modifier release, keycode: 0x%x', keycode)
             self._modifier_sate = self.RELEASED
             if self._base_state == self.RELEASED:
-                XTOOL.ungrab_keyboard()
+                Xtool.ungrab_keyboard()
                 self._initial_state()
         # base key released
         elif key == self._last_base:
@@ -1262,7 +1308,7 @@ class KeyListener(object):
                 Log.info('keys', "keybinding caught: '%s'", shortcut)
                 bindings[i][1]()
                 if self._modifier_sate == self.RELEASED:
-                    XTOOL.ungrab_keyboard()
+                    Xtool.ungrab_keyboard()
                     self._initial_state()
         # suffix key released
         else:
@@ -1276,19 +1322,19 @@ class WindowManager(object):
         self._shortcut_generator = shortcut_generator
         self._key_binder = key_binder
         self._windows = WindowList()
-        for wid in XTOOL.get_window_list():
+        for wid in Xtool.get_window_list():
             self._on_window_create(wid)
-        XTOOL.register_window_list_listener(self)
-        XTOOL.register_window_name_listener(self)
+        Xtool.register_window_list_listener(self)
+        Xtool.register_window_name_listener(self)
 
     def _bind(self, wid, shortcut):
         def raise_window(wid=wid):
-            XTOOL.raise_window(wid)
+            Xtool.raise_window(wid)
         self._key_binder.bind(shortcut, raise_window)
 
     def on_window_list_changed(self):
         old_wids = set([win.wid for win in self._windows])
-        current_wids = set(XTOOL.get_window_list())
+        current_wids = set(Xtool.get_window_list())
         new_wids = current_wids.difference(old_wids)
         closed_wids = old_wids.difference(current_wids)
         for new_wid in sorted(new_wids):
@@ -1354,15 +1400,15 @@ class WindowManager(object):
         window.wid = wid
         window.gid = 0
         try:
-            window.name = XTOOL.get_window_name(window.wid)
-            window_class = XTOOL.get_window_class(wid)
+            window.name = Xtool.get_window_name(window.wid)
+            window_class = Xtool.get_window_class(wid)
         except BadWindow, e:
             Log.exception('windows', str(e))
             return
         window.awn = self._get_awn(window_class)
-        if CONFIG.group_windows_by == 'Group':
-            window.gid = XTOOL.get_window_group_id(wid)
-        elif CONFIG.group_windows_by == 'Class':
+        if Config.group_windows_by == 'Group':
+            window.gid = Xtool.get_window_group_id(wid)
+        elif Config.group_windows_by == 'Class':
             window.gid = self._windows.get_group_id(window.awn)
         if not window.gid:
             window.gid = self._windows.get_unique_group_id()
@@ -1372,7 +1418,7 @@ class WindowManager(object):
                 self._update_history(window)
             self._windows.append(window)
             self._update_window_name(window, window.shortcut)
-            XTOOL.listen_window_name(window.wid)
+            Xtool.listen_window_name(window.wid)
 
     def _add_shortcut(self, window):
         """Generate a new unused shortcut for `window` and add the shortcut to
@@ -1398,14 +1444,14 @@ class WindowManager(object):
 
     def _update_window_name(self, window, prev_shortcut):
         """Change the window name, so it includes the shortcut."""
-        if CONFIG.title_format == 'None':
+        if Config.title_format == 'None':
             return
         try:
-            new_name = XTOOL.get_window_name(window.wid)
+            new_name = Xtool.get_window_name(window.wid)
         except BadWindow, e:
             Log.exception('windows', str(e))
             return
-        edges = CONFIG.title_format.split('%t')
+        edges = Config.title_format.split('%t')
         start = edges[0].replace('%s', prev_shortcut)
         end = edges[1].replace('%s', prev_shortcut)
         if new_name.startswith(start) and new_name.endswith(end):
@@ -1416,20 +1462,20 @@ class WindowManager(object):
             Log.info('windows', "window name '%s' (id=0x%x) changed to '%s'",
                     window.name, window.wid, new_name)
         window.name = new_name
-        new_name = CONFIG.title_format.replace('%t', new_name)
+        new_name = Config.title_format.replace('%t', new_name)
         new_name = new_name.replace('%s', window.shortcut)
-        XTOOL.set_window_name(window.wid, new_name)
+        Xtool.set_window_name(window.wid, new_name)
 
     def _update_history(self, window):
         """Update history with a new window or its new base key."""
 
-        if window.awn in CONFIG.history:
-            del CONFIG.history[window.awn]
-        CONFIG.history[window.awn] = window.shortcut[0]
-        CONFIG.truncate_history()
+        if window.awn in Config.history:
+            del Config.history[window.awn]
+        Config.history[window.awn] = window.shortcut[0]
+        Config.truncate_history()
 
     def _get_awn(self, win_class):
-        for ruleno, rule in enumerate(CONFIG.rules):
+        for ruleno, rule in enumerate(Config.rules):
             pat = rule[0]
             repl = list(rule[1])
             match = pat.match(win_class)
@@ -1444,7 +1490,7 @@ class WindowManager(object):
                         except IndexError:
                             Log.error("invalid group number %i in '%s'",
                                 token, ''.join([str(s) for s in repl]))
-                            del CONFIG.rules[ruleno]
+                            del Config.rules[ruleno]
                             continue
                 return ''.join(repl)
         return win_class
@@ -1463,7 +1509,7 @@ class SignalHandler:
     def save_histoy_handler(sig, frame):
         """Save the current history to the configuration file."""
         try:
-            CONFIG.write_history()
+            Config.write_history()
         except (IOError, OSError, MissingSection), e:
             Log.exception('config', str(e))
 
@@ -1478,7 +1524,7 @@ def graceful_exit(exit_code=0, write_history=True):
     """Write history, shutdown logging, and exit."""
     if write_history:
         try:
-            CONFIG.write_history()
+            Config.write_history()
         except (IOError, OSError, MissingSection), e:
             Log.exception('config', str(e))
     logging.shutdown()
@@ -1486,29 +1532,30 @@ def graceful_exit(exit_code=0, write_history=True):
 
 if __name__ == "__main__":
     filename = os.path.expanduser('~/.xatkrc')
-    CONFIG = Config(filename)
+    Config.set_filename(filename)
     if os.path.exists(filename):
         try:
-            CONFIG.parse()
+            Config.parse()
         except (ParseError, OptionValueError, UnrecognizedOption,
                 UnrecognizedSection, MissingOption, MissingSection), e:
             Log.exception('config', str(e))
             graceful_exit(1, False)
     else:
         try:
-            CONFIG.write()
+            Config.write()
         except IOError, e:
             Log.exception('config', str(e))
             graceful_exit(1, False)
-
-    XTOOL = XTool()
-    kblayout = KeyboardLayout(CONFIG.keyboard_layout)
+        else:
+            Config.use_defaults()
+    Xtool.connect()
+    kblayout = KeyboardLayout(Config.keyboard_layout)
     shortcut_generator = ShortcutGenerator(kblayout)
-    keybinder = KeyBinder(CONFIG.modifiers)
+    keybinder = KeyBinder(Config.modifiers)
     winmanager = WindowManager(shortcut_generator, keybinder)
     SignalHandler.handle_all()
     try:
-        XTOOL.event_loop()
+        Xtool.event_loop()
     except ConnectionClosedError, e:
         Log.exception('X', str(e))
         graceful_exit(1)
