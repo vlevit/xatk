@@ -2,6 +2,7 @@
 
 import ConfigParser
 import logging.handlers
+import optparse
 import os.path
 import re
 import signal
@@ -11,6 +12,11 @@ from UserDict import DictMixin
 
 from Xlib import display, error, protocol, X, Xatom, XK
 
+
+PROGNAME = 'xatk'
+VERSION  = (0,0,0)
+VERSIONNAME = '%s %s' % (PROGNAME, '.'.join(map(str, VERSION)))
+FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
 
 class OrderedDict(dict, DictMixin):
     """OrderedDict implementaion equivalent to Python2.7's OrderedDict by
@@ -361,6 +367,10 @@ class Config(object):
     def use_defaults():
         """Set `Config` attributes to default values."""
         Config._parse_options(Config._get_defaults(), Config._get_valid_opts())
+
+    @staticmethod
+    def get_default_config():
+        return Config._config_str
 
     @staticmethod
     def parse():
@@ -1530,10 +1540,139 @@ def graceful_exit(exit_code=0, write_history=True):
     logging.shutdown()
     sys.exit(exit_code)
 
+def parse_options():
+    """Parse command line options and return an object holding option
+    values."""
+    def splitstr(option, opt_str, value, parser, choice):
+        splits = value.split(',')
+        for s in splits:
+            if not s in choice:
+                raise optparse.OptionValueError('option %s: invalid field: '
+                    '%s (valid fields: %s)' % (opt_str, s, ', '.join(choice)))
+        setattr(parser.values, option.dest, splits)
+    usage = 'usage: %s [options]' % PROGNAME
+    optparser = optparse.OptionParser(usage=usage,
+                                      version=VERSIONNAME,
+                                      add_help_option=False,
+                                      conflict_handler='resolve'
+    )
+    optparser.add_option('-h', '--help',
+                         action='help',
+                         help="Show this help message and exit."
+    )
+    optparser.add_option('-V', '--version',
+                         action='version',
+                         help="Show program's version number and exit."
+    )
+    optparser.add_option('-p', '--print-defaults',
+                         dest='print_defaults',
+                         action='store_true',
+                         default=False,
+                         help='Print a default configuration file on the '
+                         'standard output.'
+    )
+    optparser.add_option('-f', '--file',
+                         dest='filename',
+                         metavar='FILE',
+                         default=os.path.expanduser('~/.xatkrc'),
+                         help='Specify a configuration file. The default is '
+                         '$HOME/.xatkrc.'
+    )
+    optparser.add_option('-d', '--display',
+                         dest='display',
+                         metavar='DISPLAY',
+                         type='string',
+                         help='Specify X display name to connect to. If not '
+                         'given the environment variable $DISPLAY is used.'
+    )
+    debgroup = optparse.OptionGroup(optparser, 'Debugging Options')
+    debgroup.add_option('-v', '--verbose',
+                        dest='verbosity',
+                        action='count',
+                        default=0,
+                        help='Provide verbose output. When the option is '
+                        'given twice the verbosity increases.'
+    )
+    debgroup.add_option('-t', '--format',
+                        dest='fields',
+                        type='string',
+                        action='callback',
+                        callback=splitstr,
+                        callback_args=(Log.FMTDICT.keys(),),
+                        metavar='field1[,field2[,...]]',
+                        help='Specify which fields to print and their order. '
+                        'Possible fields: %s.' % ', '.join(Log.FMTDICT.keys())
+    )
+    debgroup.add_option('-r', '--filter',
+                        dest='categories',
+                        type='string',
+                        action='callback',
+                        callback=splitstr,
+                        callback_args=(FIELDS,),
+                        metavar='category1[,category2[,...]]',
+                        help='Print only those messages that belong to given '
+                        'categories (this doesn\'t apply to errors and '
+                        'warnings which are always printed). Possible '
+                        'categories: %s.' % ', '.join(FIELDS)
+    )
+    debgroup.add_option('-l', '--log-file',
+                        dest='logfile',
+                        metavar='FILE',
+                        help='Specify a file where to write a log. Options '
+                        '-t/--format and -r/--filter don\'t affect '
+                        'logging to the file.'
+    )
+    debgroup.add_option('-b', '--backup-count',
+                        dest='backup_count',
+                        type='int',
+                        default=0,
+                        metavar='NUMBER',
+                        help='How many log files to store not counting the '
+                        'current one (specified by -l/--log-file option). '
+                        'Default value is %%default. If NUMBER is not 0 '
+                        'log files will be rotated on every %s\'s start. '
+                        'The name of the oldest file will have the largest '
+                        'number at the end (e.g. %s.log.5).' % ((PROGNAME,)*2)
+    )
+    optparser.add_option_group(debgroup)
+    (options, args) = optparser.parse_args()
+    if args:
+        optparser.error('no argument was expected: %s' % ', '.join(args))
+    if options.verbosity == 0:
+        if options.fields is not None:
+            optparser.error('option -t/--format: -v/--verbose should'
+                            ' be specified')
+        if options.categories is not None:
+            optparser.error('option -r/--filter: -v/--verbose should '
+                            'be specified')
+    if options.logfile is None:
+        if options.backup_count !=0:
+            optparser.error('option -b/--backup-count: -l/--log-file should '
+                            'be specified')
+    if options.backup_count < 0:
+        optparser.error('option -b/--backup-count: value should be 0 or '
+                        'larger: %d' % options.backup_count)
+    return options
+
 if __name__ == "__main__":
-    filename = os.path.expanduser('~/.xatkrc')
-    Config.set_filename(filename)
-    if os.path.exists(filename):
+    options = parse_options()
+    if options.print_defaults:
+        print Config.get_default_config()
+        sys.exit(0)
+    if options.verbosity == 0:
+        Log.setLevel(logging.WARNING)
+    elif options.verbosity == 1:
+        Log.setLevel(logging.INFO)
+    else:
+        Log.setLevel(logging.DEBUG)
+    if options.fields is not None:
+        Log.configFormatter(options.fields)
+    if options.categories is not None:
+        Log.configFilter(options.categories)
+    if options.logfile is not None:
+        Log.configRotatingFileHandler(options.logfile, options.backup_count)
+    Config.set_filename(options.filename)
+    if os.path.exists(options.filename):
         try:
             Config.parse()
         except (ParseError, OptionValueError, UnrecognizedOption,
@@ -1548,7 +1687,11 @@ if __name__ == "__main__":
             graceful_exit(1, False)
         else:
             Config.use_defaults()
-    Xtool.connect()
+    try:
+        Xtool.connect(options.display)
+    except error.DisplayError, e:
+        Log.exception('X', str(e))
+        graceful_exit(1, False)
     kblayout = KeyboardLayout(Config.keyboard_layout)
     shortcut_generator = ShortcutGenerator(kblayout)
     keybinder = KeyBinder(Config.modifiers)
