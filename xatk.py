@@ -13,9 +13,10 @@ from UserDict import DictMixin
 from Xlib import display, error, protocol, X, Xatom, XK
 
 
-PROGNAME = 'xatk'
+PROG_NAME = 'xatk'
 VERSION  = (0,0,0)
-VERSIONNAME = '%s %s' % (PROGNAME, '.'.join(map(str, VERSION)))
+CONFIG_PATH = '~/.xatkrc'
+VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
 
 class OrderedDict(dict, DictMixin):
@@ -370,7 +371,7 @@ class Config(object):
 
     @staticmethod
     def get_default_config():
-        return Config._config_str
+        return Config._config_str % Config._get_defaults()
 
     @staticmethod
     def parse():
@@ -462,7 +463,8 @@ class Config(object):
                           histsec + confstr[m.end('histsec'):]
                 # write a new configuration file safely
                 dir_ = os.path.dirname(Config._filename)
-                tempfilename = os.path.join(dir_, '.xatkrc.xatk~')
+                tempfilename = os.path.join(dir_,
+                                        Config._filename + '.%s~' % PROG_NAME)
                 try:
                     tempfile = open(tempfilename, 'w')
                     tempfile.write(newconf)
@@ -564,7 +566,7 @@ class Config(object):
                 hist[item[0]] = item[1]
             else:
                 Log.warning('config', 'shortcut should be an alphabetical' +
-                "charachter: '%s', ignored", item[1])
+                "character: '%s', ignored", item[1])
         Log.info('config', 'parsed history: %s', str(hist))
         return hist
 
@@ -579,7 +581,7 @@ class Config(object):
         'modifiers'        : ('Super', _parse_modifiers),
         'group_windows_by' : ('Class', ('Class', 'Group', 'None')),
         'title_format'     : ('%t   /%s/', _parse_title_format),
-        'history_length'   : ('15', _parse_history_length),
+        'history_length'   : (15, _parse_history_length),
         }
     """Dictionary with keys containing options, and values containing
     tuples of the default value and a list of possible valid values.
@@ -622,9 +624,9 @@ class Config(object):
      # different windows across the sessions.
      # Set the value of history_length to 0 to disable the history feature.
      # It's recommended to set the option to slightly larger value than the
-     # number of windows you use regularly but not much exceeding 20 (because
+     # number of windows you use regularly but not much larger than 20 (because
      # of the limit of 27 latin letters).
-     history_length = 15
+     history_length = %(history_length)d
 
      [HISTORY]
 
@@ -633,10 +635,10 @@ class Config(object):
      # transformed to abstract window names (AWNs). AWNs are used to determine
      # window shortcuts.  For example, if AWN is 'xterm' than keybinding will
      # more likely 'mod+x'. If it is already assigned to another window or is
-     # used by an another programm, xatk will try to bind the window to
-     # 'mod+t'. It sorts out the keys until it finds one that is not
-     # occupied. If it turns out there is no such a key, xatk will assign the
-     # window to an arbitary unused keybinding.
+     # used by an another program the next keybinding to try out will be
+     # 'mod+t'. It sorts out the alphabetical characters of AWN until it finds
+     # one whose corresponding key is not grabbed. If it turns out there is
+     # no such a key, the window will be binded to any different unused key.
 
      # Format:
      # replacement_string = class_regexp
@@ -1152,8 +1154,8 @@ class GrabError(KeyBinderError):
         self.modmask = modmask
 
     def __str__(self):
-        return ("can't grab key '%s' with modifier mask %s. It is already " +\
-        "grabbed by another programm.") % (self.shortcut[0], hex(self.modmask))
+        return ("can't grab key '%s' with modifier mask %s. It is already " +
+        "grabbed by another program.") % (self.shortcut[0], hex(self.modmask))
 
 class KeyBinder(object):
 
@@ -1364,7 +1366,7 @@ class WindowManager(object):
         if win is not None:
             self._update_window_name(win, win.shortcut)
         else:
-            Log.warning('windows', 'name of the window with id=0%x changed' +
+            Log.warning('windows', 'name of the window (id=0%x) changed ' +
                         'while it is not in the window list', wid)
 
     def _on_windows_close(self, wids):
@@ -1444,7 +1446,7 @@ class WindowManager(object):
             try:
                 self._bind(window.wid, shortcut)
             except GrabError, e:
-                Log.exception('keys', str(e))
+                Log.info('keys', str(e))
                 self._shortcut_generator.forbid_base(shortcut[0])
             else:
                 break
@@ -1513,7 +1515,7 @@ class SignalHandler:
     def graceful_exit_handler(sig, frame):
         """Handle graceful exit of the program."""
         Log.info('signals', 'signal recieved: %i', sig)
-        graceful_exit()
+        graceful_exit(write_history=True)
 
     @staticmethod
     def save_histoy_handler(sig, frame):
@@ -1530,7 +1532,7 @@ class SignalHandler:
         signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
-def graceful_exit(exit_code=0, write_history=True):
+def graceful_exit(exit_code=0, write_history=False):
     """Write history, shutdown logging, and exit."""
     if write_history:
         try:
@@ -1550,9 +1552,9 @@ def parse_options():
                 raise optparse.OptionValueError('option %s: invalid field: '
                     '%s (valid fields: %s)' % (opt_str, s, ', '.join(choice)))
         setattr(parser.values, option.dest, splits)
-    usage = 'usage: %s [options]' % PROGNAME
+    usage = 'usage: %s [options]' % PROG_NAME
     optparser = optparse.OptionParser(usage=usage,
-                                      version=VERSIONNAME,
+                                      version=VERSION_NAME,
                                       add_help_option=False,
                                       conflict_handler='resolve'
     )
@@ -1574,9 +1576,9 @@ def parse_options():
     optparser.add_option('-f', '--file',
                          dest='filename',
                          metavar='FILE',
-                         default=os.path.expanduser('~/.xatkrc'),
+                         default=os.path.expanduser(CONFIG_PATH),
                          help='Specify a configuration file. The default is '
-                         '$HOME/.xatkrc.'
+                         '%s.' % CONFIG_PATH
     )
     optparser.add_option('-d', '--display',
                          dest='display',
@@ -1619,8 +1621,8 @@ def parse_options():
                         dest='logfile',
                         metavar='FILE',
                         help='Specify a file where to write a log. Options '
-                        '-t/--format and -r/--filter don\'t affect '
-                        'logging to the file.'
+                        '-v/--verbose, -t/--format and -r/--filter don\'t '
+                        'affect logging to the file.'
     )
     debgroup.add_option('-b', '--backup-count',
                         dest='backup_count',
@@ -1632,7 +1634,7 @@ def parse_options():
                         'Default value is %%default. If NUMBER is not 0 '
                         'log files will be rotated on every %s\'s start. '
                         'The name of the oldest file will have the largest '
-                        'number at the end (e.g. %s.log.5).' % ((PROGNAME,)*2)
+                        'number at the end (e.g. %s.log.5).' % ((PROG_NAME,)*2)
     )
     optparser.add_option_group(debgroup)
     (options, args) = optparser.parse_args()
@@ -1678,20 +1680,20 @@ if __name__ == "__main__":
         except (ParseError, OptionValueError, UnrecognizedOption,
                 UnrecognizedSection, MissingOption, MissingSection), e:
             Log.exception('config', str(e))
-            graceful_exit(1, False)
+            graceful_exit(1)
     else:
         try:
             Config.write()
         except IOError, e:
             Log.exception('config', str(e))
-            graceful_exit(1, False)
+            graceful_exit(1)
         else:
             Config.use_defaults()
     try:
         Xtool.connect(options.display)
     except error.DisplayError, e:
         Log.exception('X', str(e))
-        graceful_exit(1, False)
+        graceful_exit(1)
     kblayout = KeyboardLayout(Config.keyboard_layout)
     shortcut_generator = ShortcutGenerator(kblayout)
     keybinder = KeyBinder(Config.modifiers)
@@ -1701,4 +1703,4 @@ if __name__ == "__main__":
         Xtool.event_loop()
     except ConnectionClosedError, e:
         Log.exception('X', str(e))
-        graceful_exit(1)
+        graceful_exit(1, write_history=True)
