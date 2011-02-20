@@ -617,9 +617,14 @@ class Config(object):
     )
 
 class History(OrderedDict):
+    """
+    Extend OrderedDict. Contain (awn, key) pairs. Number of these pairs is
+    controlled by `Config.history_length` value.
+    """
 
     def parse(self, history):
         Log.debug('config', 'parsing history...')
+        history.reverse()
         for item in history:
             if len(item[1]) == 1 and item[1].isalpha():
                 self[item[0]] = item[1]
