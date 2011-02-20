@@ -528,7 +528,7 @@ class Config(object):
     _defaults = {
         'keyboard_layout'  : ('QWERTY', ('QWERTY', 'Dvorak')),
         'modifiers'        : ('Super', _parse_modifiers),
-        'group_windows_by' : ('Class', ('Class', 'Group', 'None')),
+        'group_windows_by' : ('AWN', ('AWN', 'Group', 'None')),
         'title_format'     : ('%t   /%s/', _parse_title_format),
         'history_length'   : (15, _parse_history_length),
         }
@@ -880,6 +880,7 @@ class Window(object):
     - `gid`: window group id
     - `awn`: abstract window name, from which shortcut is produced
     - `name`: real window name (title)
+    - `klass`: window class
     - `shortcut`: is represented by a string of length one or two (e.g. 'a' or
       'bn', where 'a' is the base key, 'b' is the prefix, and 'n' is the
       suffix).
@@ -1488,14 +1489,14 @@ class WindowManager(object):
         window.gid = 0
         try:
             window.name = Xtool.get_window_name(window.wid)
-            window_class = Xtool.get_window_class(wid)
+            window.klass = Xtool.get_window_class(wid)
         except BadWindow, e:
             Log.exception('windows', str(e))
             return
-        window.awn = self._rules.get_awn(window_class, window.name)
+        window.awn = self._rules.get_awn(window.klass, window.name)
         if Config.group_windows_by == 'Group':
             window.gid = Xtool.get_window_group_id(wid)
-        elif Config.group_windows_by == 'Class':
+        elif Config.group_windows_by == 'AWN':
             window.gid = self._windows.get_group_id(window.awn)
         if not window.gid:
             window.gid = self._windows.get_unique_group_id()
