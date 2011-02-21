@@ -10,7 +10,17 @@ import sys
 from ConfigParser import RawConfigParser
 from UserDict import DictMixin
 
-from Xlib import display, error, protocol, X, Xatom, XK
+try:
+    import Xlib.X
+    import Xlib.XK
+    import Xlib.Xatom
+    import Xlib.display
+    import Xlib.error
+    import Xlib.protocol
+except ImportError:
+    XLIB_PRESENT = False
+else:
+    XLIB_PRESENT = True
 
 
 PROG_NAME = 'xatk'
@@ -124,6 +134,7 @@ class Log(object):
     """Provide static methods for logging similar to those in the logging
     module."""
 
+    SYSINFO = 5
     CATLEN = 7
     FMTDICT = OrderedDict(
         (
@@ -136,8 +147,9 @@ class Log(object):
     MSGFORMAT = ' - '.join(FMTDICT.values())
     DATEFORMAT = '%H:%M:%S'
 
+    logging.addLevelName(SYSINFO, 'SYSINFO')
     logger = logging.getLogger('root')
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(SYSINFO)
     handler = logging.StreamHandler()
     logger.addHandler(handler)
     formatter = logging.Formatter(MSGFORMAT, DATEFORMAT)
@@ -242,7 +254,7 @@ class Log(object):
     def configRotatingFileHandler(filename, backupCount=0):
         Log.rotatingFileHandler = Log.SessionRotatingFileHandler(
             filename, backupCount)
-        Log.rotatingFileHandler.setLevel(logging.DEBUG)
+        Log.rotatingFileHandler.setLevel(Log.SYSINFO)
         formatter = logging.Formatter(Log.MSGFORMAT, Log.DATEFORMAT)
         Log.rotatingFileHandler.setFormatter(formatter)
         Log.logger.addHandler(Log.rotatingFileHandler)
@@ -251,6 +263,11 @@ class Log(object):
     def resetRotatingFileHandler():
         if Log.rotatingFileHandler is not None:
             Log.logger.removeHandler(Log.rotatingFileHandler)
+
+    @staticmethod
+    def sysinfo(category, msg, *args, **kwargs):
+        Log._update_extra(kwargs, category)
+        Log.logger.log(Log.SYSINFO, msg, *args, **kwargs)
 
     @staticmethod
     def debug(category, msg, *args, **kwargs):
@@ -287,6 +304,14 @@ class Log(object):
     def log(level, category, msg, *args, **kwargs):
         Log._update_extra(kwargs, category)
         Log.logger.log(level, msg, *args, **kwargs)
+
+    @staticmethod
+    def log_system_information():
+        Log.sysinfo('uname', '%s %s' % (os.uname()[0], os.uname()[2]))
+        Log.sysinfo('python', sys.version[0:5])
+        xlib_version = Xlib.__version_string__ if XLIB_PRESENT else 'no'
+        Log.sysinfo('xlib', xlib_version)
+        Log.sysinfo(PROG_NAME, VERSION_NAME)
 
 class ConfigError(Exception):
     """Base class for Config exceptions."""
@@ -940,10 +965,10 @@ class Xtool(object):
 
     @staticmethod
     def connect(displaystr=None):
-        Xtool._display = display.Display(displaystr)
+        Xtool._display = Xlib.display.Display(displaystr)
         Xtool._root = Xtool._display.screen().root
-        Xtool._root.change_attributes(event_mask=X.KeyPressMask |
-            X.KeyReleaseMask | X.PropertyChangeMask)
+        Xtool._root.change_attributes(event_mask=Xlib.X.KeyPressMask |
+            Xlib.X.KeyReleaseMask | Xlib.X.PropertyChangeMask)
         Xtool._init_mod_keycodes()
 
     # keyboard related methods
@@ -951,30 +976,32 @@ class Xtool(object):
     @staticmethod
     def grab_key(keycode, mask, onerror=None):
         Xtool._root.grab_key(keycode, mask,
-            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
-        Xtool._root.grab_key(keycode, mask | X.Mod2Mask,
-            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
-        Xtool._root.grab_key(keycode, mask | X.LockMask,
-            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
-        Xtool._root.grab_key(keycode, mask | X.Mod2Mask | X.LockMask,
-            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
+            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
+        Xtool._root.grab_key(keycode, mask | Xlib.X.Mod2Mask,
+            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
+        Xtool._root.grab_key(keycode, mask | Xlib.X.LockMask,
+            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
+        Xtool._root.grab_key(keycode, mask | Xlib.X.Mod2Mask | Xlib.X.LockMask,
+            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
 
     @staticmethod
     def ungrab_key(keycode, mask, onerror=None):
         Xtool._root.ungrab_key(keycode, mask, onerror=onerror)
-        Xtool._root.ungrab_key(keycode, mask | X.Mod2Mask, onerror=onerror)
-        Xtool._root.ungrab_key(keycode, mask | X.LockMask, onerror=onerror)
-        Xtool._root.ungrab_key(keycode, mask | X.Mod2Mask | X.LockMask,
-            onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | Xlib.X.Mod2Mask,
+                               onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | Xlib.X.LockMask,
+                               onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | Xlib.X.Mod2Mask |
+                               Xlib.X.LockMask, onerror=onerror)
 
     @staticmethod
     def grab_keyboard():
-        Xtool._root.grab_keyboard(1, X.GrabModeAsync, X.GrabModeAsync,
-            X.CurrentTime)
+        Xtool._root.grab_keyboard(1, Xlib.X.GrabModeAsync,
+                                  Xlib.X.GrabModeAsync, Xlib.X.CurrentTime)
 
     @staticmethod
     def ungrab_keyboard():
-        Xtool._display.ungrab_keyboard(X.CurrentTime)
+        Xtool._display.ungrab_keyboard(Xlib.X.CurrentTime)
         # after the keyboard is ungrabbed no release event
         # will come, so forget all pressed keys
         Xtool._pressed_keys.clear()
@@ -988,12 +1015,13 @@ class Xtool(object):
         # Since keysyms are backward compatible with ASCII we can use ord()
         # instead of XK.string_to_keysym() to avoid translation of
         # non-alphabetical symbols to keysym strings previosly
-        keysym = XK.string_to_keysym(key) if use_keysym else ord(key)
+        keysym = Xlib.XK.string_to_keysym(key) if use_keysym else ord(key)
         return Xtool._display.keysym_to_keycode(keysym)
 
     @staticmethod
     def get_key(keycode):
-        return XK.keysym_to_string(Xtool._display.keycode_to_keysym(keycode, 0))
+        return Xlib.XK.keysym_to_string(
+            Xtool._display.keycode_to_keysym(keycode, 0))
 
     @staticmethod
     def _init_mod_keycodes():
@@ -1029,7 +1057,7 @@ class Xtool(object):
     @staticmethod
     def get_window_list():
         return Xtool._root.get_full_property(
-            Xtool._atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
+            Xtool._atom("_NET_CLIENT_LIST"), Xlib.Xatom.WINDOW).value
 
     @staticmethod
     def _get_window(wid):
@@ -1040,7 +1068,7 @@ class Xtool(object):
         win = Xtool._get_window(wid)
         try:
             name = win.get_full_property(Xtool._atom("_NET_WM_NAME"), 0)
-        except error.BadWindow:
+        except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if name:
             return unicode(name.value, 'utf-8')
@@ -1051,7 +1079,7 @@ class Xtool(object):
     def get_window_application(wid):
         try:
             cls = Xtool._get_window(wid).get_wm_class()
-        except error.BadWindow:
+        except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if cls:
             return cls[0]
@@ -1062,7 +1090,7 @@ class Xtool(object):
     def get_window_class(wid):
         try:
             cls = Xtool._get_window(wid).get_wm_class()
-        except error.BadWindow:
+        except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if cls:
             return cls[1]
@@ -1087,7 +1115,7 @@ class Xtool(object):
             Xtool._atom('UTF8_STRING'),
             8,
             name.encode('utf-8'),
-            mode=X.PropModeReplace);
+            mode=Xlib.X.PropModeReplace)
 
     @staticmethod
     def set_window_name(wid, name):
@@ -1100,14 +1128,15 @@ class Xtool(object):
     @staticmethod
     def raise_window(wid):
         window = Xtool._get_window(wid)
-        raise_event = protocol.event.ClientMessage(
+        raise_event = Xlib.protocol.event.ClientMessage(
             client_type=Xtool._atom('_NET_ACTIVE_WINDOW'),
             window=window,
             data=(32, [2, Xtool._last_key_event_time, 0, 0, 0]))
         Xtool._display.send_event(
             Xtool._root,
             raise_event,
-            event_mask=X.SubstructureRedirectMask or X.SubstructureNotifyMask)
+            event_mask=Xlib.X.SubstructureRedirectMask |
+                       Xlib.X.SubstructureNotifyMask)
         Xtool._display.flush()
 
     @staticmethod
@@ -1115,7 +1144,7 @@ class Xtool(object):
         """Tell Xtool to watch the window name changes. Otherwise
         `window_name_listener.on_window_name_changed()` will not work."""
         Xtool._get_window(wid).change_attributes(
-            event_mask=X.PropertyChangeMask)
+            event_mask=Xlib.X.PropertyChangeMask)
 
     @staticmethod
     def register_key_listener(key_listener):
@@ -1137,12 +1166,12 @@ class Xtool(object):
 
     @staticmethod
     def _window_list_changed(event):
-        return event.type == X.PropertyNotify and \
+        return event.type == Xlib.X.PropertyNotify and \
             event.atom == Xtool._atom("_NET_CLIENT_LIST")
 
     @staticmethod
     def _window_name_changed(event):
-        return event.type == X.PropertyNotify and \
+        return event.type == Xlib.X.PropertyNotify and \
             (event.atom == Xtool._atom("_NET_WM_NAME") or
             event.atom == Xtool._atom("WM_NAME"))
 
@@ -1199,17 +1228,17 @@ class Xtool(object):
                 elif Xtool._window_name_changed(event):
                     Xtool._window_name_listener.on_window_name_changed(
                         event.window.id)
-                elif event.type == X.KeyPress:
+                elif event.type == Xlib.X.KeyPress:
                     Xtool._last_key_event_time = event.time
                     keycode = event.detail
                     if not Xtool._is_key_press_fake(keycode):
                         Xtool._key_listener.on_key_press(keycode)
-                elif event.type == X.KeyRelease:
+                elif event.type == Xlib.X.KeyRelease:
                     Xtool._last_key_event_time = event.time
                     keycode = event.detail
                     if not Xtool._is_key_release_fake(keycode):
                         Xtool._key_listener.on_key_release(keycode)
-            except error.ConnectionClosedError, e:
+            except Xlib.error.ConnectionClosedError, e:
                 raise ConnectionClosedError(str(e))
 
 class KeyBinderError(Exception):
@@ -1259,13 +1288,13 @@ class KeyBinder(object):
         modmask = 0
         for modifier in modifiers:
             if modifier == 'Shift':
-                modmask = modmask | X.ShiftMask
+                modmask = modmask | Xlib.X.ShiftMask
             elif modifier == 'Control':
-                modmask = modmask | X.ControlMask
+                modmask = modmask | Xlib.X.ControlMask
             elif modifier == 'Mod1':
-                modmask = modmask | X.Mod1Mask
+                modmask = modmask | Xlib.X.Mod1Mask
             elif modifier == 'Mod4':
-                modmask = modmask | X.Mod4Mask
+                modmask = modmask | Xlib.X.Mod4Mask
             else:
                 raise ValueError('Bad modifier name:%s\n' % modifier)
         return modmask
@@ -1278,7 +1307,7 @@ class KeyBinder(object):
         are used to bind window actions.
         With `modifiers` being a list of modifiers only one key shortcuts are
         allowed. THIS KIND OF KEYBINDINGS ISN'T IMPLEMENTED YET."""
-        ec = error.CatchError(error.BadAccess)
+        ec = Xlib.error.CatchError(Xlib.error.BadAccess)
         if modifiers is not None:
             keycode = Xtool.get_keycode(shortcut, use_keysym=True)
             if not keycode:
@@ -1730,6 +1759,11 @@ if __name__ == "__main__":
         Log.configFilter(options.categories)
     if options.logfile is not None:
         Log.configRotatingFileHandler(options.logfile, options.backup_count)
+        Log.log_system_information()
+    if not XLIB_PRESENT:
+        Log.error('X', 'can\'t import Xlib, probably python-xlib '
+                  'is no installed')
+        graceful_exit(1)
     rules = Rules()
     history = History()
     Config.set_filename(options.filename)
@@ -1749,7 +1783,7 @@ if __name__ == "__main__":
             Config.use_defaults()
     try:
         Xtool.connect(options.display)
-    except error.DisplayError, e:
+    except Xlib.error.DisplayError, e:
         Log.exception('X', str(e))
         graceful_exit(1)
     WindowManager(rules, history)       # everything starts here
