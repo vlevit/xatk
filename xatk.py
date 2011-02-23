@@ -135,6 +135,9 @@ class Log(object):
     module."""
 
     SYSINFO = 5
+    STDERR = 45
+    STDOUT = 25
+
     CATLEN = 7
     FORMAT_DICT = OrderedDict(
         (
@@ -149,6 +152,8 @@ class Log(object):
     DATE_FORMAT = '%H:%M:%S'
 
     logging.addLevelName(SYSINFO, 'SYSINFO')
+    logging.addLevelName(STDERR, 'STDERR')
+    logging.addLevelName(STDOUT, 'STDOUT')
     logger = logging.getLogger('root')
     logger.setLevel(SYSINFO)
     handler = logging.StreamHandler()
@@ -182,6 +187,55 @@ class Log(object):
                     return True
             return False
 
+    class StdLog(object):
+        """File-like object intended to redirect stdout and stderr."""
+
+        def __init__(self, std):
+            """Create a stderr-like or stdout-like object.
+            std value should be either Log.STDERR or Log.STDOUT.
+            """
+            if std == Log.STDOUT:
+                stdbackup = sys.stdout
+            elif std == Log.STDERR:
+                stdbackup = sys.stderr
+            else:
+                raise ValueError('invalid value of std: %s' % std)
+            self._std = std
+            self.stdbackup = stdbackup
+
+            self.closed = stdbackup.closed
+            self.encoding = stdbackup.encoding
+            self.errors = stdbackup.errors
+            self.mode = stdbackup.mode
+            self.name = '<log>'
+            self.newlines = stdbackup.newlines
+            self.softspace = stdbackup.softspace
+            self.__iter__ = stdbackup.__iter__
+            self.next = stdbackup.next
+            self.close = stdbackup.close
+            self.seek = stdbackup.seek
+            self.tell = stdbackup.tell
+            self.read = stdbackup.read
+            self.readline = stdbackup.readline
+            self.truncate = stdbackup.truncate
+
+        def isatty(self):
+            return False
+
+        def write(self, s):
+            for l in s.splitlines():
+                if l != '':
+                    Log.log(self._std, '', l)
+
+        def writelines(self, iterable):
+            for l in iterable:
+                self.write(l)
+
+        def flush(self):
+            Log.handler.flush()
+            if hasattr(Log, 'rotatingFileHandler'):
+                Log.rotatingFileHandler.flush()
+
     @staticmethod
     def _update_extra(kwargs, category):
         """Update `extra` dictionary in `kwargs` dictionary with `catset`
@@ -209,6 +263,22 @@ class Log(object):
             kwargs['extra'] = catdict
         else:
             kwargs['extra'].update(catdict)
+
+    @staticmethod
+    def capture_stdout():
+        sys.stdout = Log.StdLog(Log.STDOUT)
+
+    @staticmethod
+    def capture_stderr():
+        sys.stderr = Log.StdLog(Log.STDERR)
+
+    @staticmethod
+    def release_stdout():
+        sys.stdout = sys.stdout.stdbackup
+
+    @staticmethod
+    def release_stderr():
+        sys.stderr = sys.stderr.stdbackup
 
     @staticmethod
     def configFilter(categories):
@@ -1816,6 +1886,8 @@ if __name__ == "__main__":
         Log.error('X', 'can\'t import Xlib, probably python-xlib '
                   'is no installed')
         graceful_exit(1)
+    Log.capture_stderr()
+    Log.capture_stdout()
     rules = Rules()
     history = History()
     Config.set_filename(options.filename)
