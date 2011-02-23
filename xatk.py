@@ -556,6 +556,8 @@ class Config(object):
         'group_windows_by' : ('AWN', ('AWN', 'Group', 'None')),
         'title_format'     : ('%t   /%s/', _parse_title_format),
         'history_length'   : (15, _parse_history_length),
+        'desktop_action'   : ('SwitchDesktop', ('SwitchDesktop', 'MoveWindow',
+                                              'None')),
         }
     """Dictionary with keys containing options, and values containing
     tuples of the default value and a list of possible valid values.
@@ -581,11 +583,10 @@ class Config(object):
      # All windows of the same application are grouped. Windows of the same
      # group are binded to the keys with the same prefix. The following option
      # specifies what windows should belong to the same group.
-     # Possible values: Class, Group, None.
-     # Class -- two windows belong to the same group if they have equal window
-     # classes. This property can be obtained with xprop utility.
-     # Group -- group windows as window manager normally does.
-     # None -- do not group at all.
+     # Possible values:
+     #  - AWN -- two windows belong to the same group if they have equal awns.
+     #  - Group -- group windows as window manager normally does.
+     #  - None -- do not group at all.
      group_windows_by = %(group_windows_by)s
 
      # Change window titles, so they include the corresponding shortcuts.
@@ -593,6 +594,15 @@ class Config(object):
      # accordingly. Only one occurance of %%t or %%s in title_format is
      # possible. Set to None to deny modifying the window titles.
      title_format = %(title_format)s
+
+     # What to do if the window which is to be activated is not on the
+     # current desktop.
+     # Possible values:
+     #  - SwitchDesktop -- switch to the desktop which the window is on.
+     #  - MoveWindow -- move the window to the current desktop.
+     #  - None -- just activate the window (actual behaviour may differ
+     # with different window managers).
+     desktop_action = %(desktop_action)s
 
      # History of shortcuts is used to avoid them floating between
      # different windows across the sessions.
@@ -1067,7 +1077,8 @@ class Xtool(object):
     def get_window_name(wid):
         win = Xtool._get_window(wid)
         try:
-            name = win.get_full_property(Xtool._atom("_NET_WM_NAME"), 0)
+            name = win.get_full_property(Xtool._atom("_NET_WM_NAME"),
+                                         Xtool._atom('UTF8_STRING'))
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if name:
@@ -1118,6 +1129,19 @@ class Xtool(object):
             mode=Xlib.X.PropModeReplace)
 
     @staticmethod
+    def _send_client_message(wid, msg, data):
+        window = Xtool._get_window(wid) if wid is not None else Xtool._root
+        event = Xlib.protocol.event.ClientMessage(
+            client_type=Xtool._atom(msg),
+            window=window,
+            data=(32, data))
+        Xtool._display.send_event(
+            Xtool._root,
+            event,
+            event_mask=Xlib.X.SubstructureRedirectMask |
+                       Xlib.X.SubstructureNotifyMask)
+
+    @staticmethod
     def set_window_name(wid, name):
         Xtool._set_property(wid, '_NET_WM_NAME', name)
 
@@ -1126,18 +1150,38 @@ class Xtool(object):
         Xtool._set_property(wid, '_NET_WM_ICON_NAME', name)
 
     @staticmethod
-    def raise_window(wid):
-        window = Xtool._get_window(wid)
-        raise_event = Xlib.protocol.event.ClientMessage(
-            client_type=Xtool._atom('_NET_ACTIVE_WINDOW'),
-            window=window,
-            data=(32, [2, Xtool._last_key_event_time, 0, 0, 0]))
-        Xtool._display.send_event(
-            Xtool._root,
-            raise_event,
-            event_mask=Xlib.X.SubstructureRedirectMask |
-                       Xlib.X.SubstructureNotifyMask)
-        Xtool._display.flush()
+    def _get_desktop_number(wid=None):
+        if wid is None:
+            window = Xtool._root
+            message = '_NET_CURRENT_DESKTOP'
+        else:
+            window = Xtool._get_window(wid)
+            message = '_NET_WM_DESKTOP'
+        reply = window.get_full_property(Xtool._atom(message),
+                                         Xlib.Xatom.CARDINAL)
+        if reply is not None:
+            return reply.value[0]
+
+    DESKTOP_IGNORE = 0
+    DESKTOP_SWITCH_DESKTOP = 1
+    DESKTOP_MOVE_WINDOW = 2
+
+    @staticmethod
+    def raise_window(wid, desktop_action=DESKTOP_IGNORE):
+        if desktop_action == Xtool.DESKTOP_SWITCH_DESKTOP:
+            deskno = Xtool._get_desktop_number(wid)
+            if deskno is not None:
+                Xtool._send_client_message(None, '_NET_CURRENT_DESKTOP',
+                    [deskno, Xtool._last_key_event_time, 0, 0, 0])
+        elif desktop_action == Xtool.DESKTOP_MOVE_WINDOW:
+            deskno = Xtool._get_desktop_number()
+            if deskno is not None:
+                Xtool._send_client_message(wid, '_NET_WM_DESKTOP',
+                                           [deskno, 2, 0, 0, 0])
+        elif desktop_action != Xtool.DESKTOP_IGNORE:
+            raise ValueError('invalid desktop_action: %d' % desktop_action)
+        Xtool._send_client_message(wid, '_NET_ACTIVE_WINDOW',
+                                   [2, Xtool._last_key_event_time, 0, 0, 0])
 
     @staticmethod
     def listen_window_name(wid):
@@ -1450,8 +1494,15 @@ class WindowManager(object):
         Xtool.register_window_name_listener(self)
 
     def _bind(self, wid, shortcut):
-        def raise_window(wid=wid):
-            Xtool.raise_window(wid)
+        if Config.desktop_action == 'SwitchDesktop':
+            action = Xtool.DESKTOP_SWITCH_DESKTOP
+        elif Config.desktop_action == 'MoveWindow':
+            action = Xtool.DESKTOP_MOVE_WINDOW
+        else:
+            action = Xtool.DESKTOP_IGNORE
+
+        def raise_window(wid=wid, action=action):
+            Xtool.raise_window(wid, action)
         self._keybinder.bind(shortcut, raise_window)
 
     def on_window_list_changed(self):
