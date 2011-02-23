@@ -136,7 +136,7 @@ class Log(object):
 
     SYSINFO = 5
     CATLEN = 7
-    FMTDICT = OrderedDict(
+    FORMAT_DICT = OrderedDict(
         (
             ('time'     , '%(asctime)-8s,%(msecs)03d'),
             ('level'    , '%(levelname)-8s'),
@@ -144,15 +144,16 @@ class Log(object):
             ('message'  , '%(message)s')
         )
     )
-    MSGFORMAT = ' - '.join(FMTDICT.values())
-    DATEFORMAT = '%H:%M:%S'
+    MSG_FORMAT_FULL = ' - '.join(FORMAT_DICT.values())
+    MSG_FORMAT = '%s - %s' % (FORMAT_DICT['level'], FORMAT_DICT['message'])
+    DATE_FORMAT = '%H:%M:%S'
 
     logging.addLevelName(SYSINFO, 'SYSINFO')
     logger = logging.getLogger('root')
     logger.setLevel(SYSINFO)
     handler = logging.StreamHandler()
     logger.addHandler(handler)
-    formatter = logging.Formatter(MSGFORMAT, DATEFORMAT)
+    formatter = logging.Formatter(MSG_FORMAT, DATE_FORMAT)
     # don't print exception information to stderr
     formatter.formatException = lambda exc_info: ''
     handler.setFormatter(formatter)
@@ -234,7 +235,7 @@ class Log(object):
         """Change the format string to include the fields in
         `format` iterable in specified order."""
         try:
-            fields = map(Log.FMTDICT.__getitem__, format)
+            fields = map(Log.FORMAT_DICT.__getitem__, format)
         except KeyError, e:
             raise ValueError("invalid format string: %s" % e.args[0])
         Log.formatter = logging.Formatter(' - '.join(fields))
@@ -245,7 +246,7 @@ class Log(object):
     @staticmethod
     def resetFormatter():
         """Reset to the default formatter."""
-        Log.formatter = logging.Formatter(Log.MSGFORMAT, Log.DATEFORMAT)
+        Log.formatter = logging.Formatter(Log.MSG_FORMAT, Log.DATE_FORMAT)
         # don't print exception information to stderr
         Log.formatter.formatException = lambda exc_info: ''
         Log.handler.setFormatter(Log.formatter)
@@ -255,7 +256,7 @@ class Log(object):
         Log.rotatingFileHandler = Log.SessionRotatingFileHandler(
             filename, backupCount)
         Log.rotatingFileHandler.setLevel(Log.SYSINFO)
-        formatter = logging.Formatter(Log.MSGFORMAT, Log.DATEFORMAT)
+        formatter = logging.Formatter(Log.MSG_FORMAT_FULL, Log.DATE_FORMAT)
         Log.rotatingFileHandler.setFormatter(formatter)
         Log.logger.addHandler(Log.rotatingFileHandler)
 
@@ -1737,10 +1738,10 @@ def parse_options():
                         type='string',
                         action='callback',
                         callback=splitstr,
-                        callback_args=(Log.FMTDICT.keys(),),
+                        callback_args=(Log.FORMAT_DICT.keys(),),
                         metavar='field1[,field2[,...]]',
                         help='Specify which fields to print and their order. '
-                        'Possible fields: %s.' % ', '.join(Log.FMTDICT.keys())
+                        'Possible fields: %s.' % ', '.join(Log.FORMAT_DICT.keys())
     )
     debgroup.add_option('-r', '--filter',
                         dest='categories',
