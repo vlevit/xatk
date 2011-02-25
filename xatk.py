@@ -1631,7 +1631,6 @@ class WindowManager(object):
             self._on_windows_close(sorted(closed_wids))
 
     def on_window_name_changed(self, wid):
-        Log.debug('windows', 'window name changed (id=0%x)', wid)
         win = self._windows.get_window(wid)
         # In some rare cases 'window name changed' event is recieved after
         # 'window closed' event somehow. Check if it has not already been
