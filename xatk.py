@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 
 import ConfigParser
+import locale
 import logging.handlers
 import optparse
 import os.path
 import re
 import signal
+import StringIO
 import sys
 from ConfigParser import RawConfigParser
 from UserDict import DictMixin
@@ -28,6 +30,7 @@ VERSION  = (0,0,0)
 CONFIG_PATH = '~/.xatkrc'
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
+ENCODING = locale.getpreferredencoding()
 
 class OrderedDict(dict, DictMixin):
     """OrderedDict implementaion equivalent to Python2.7's OrderedDict by
@@ -130,6 +133,18 @@ class OrderedDict(dict, DictMixin):
     def __ne__(self, other):
         return not self == other
 
+def escape(string):
+    """Escape non-ascii characters in the string (unicode or str) and return
+    ascii representation of the string.
+    """
+    if isinstance(string, unicode):
+        return repr(string)[2:-1]
+    elif isinstance(string, str):
+        return repr(string)[1:-1]
+    else:
+        raise TypeError('string object was expected, passed: %s' %
+                        type(string))
+
 class Log(object):
     """Provide static methods for logging similar to those in the logging
     module."""
@@ -199,7 +214,7 @@ class Log(object):
             elif std == Log.STDERR:
                 stdbackup = sys.stderr
             else:
-                raise ValueError('invalid value of std: %s' % std)
+                raise ValueError('invalid value of std: %d' % std)
             self._std = std
             self.stdbackup = stdbackup
 
@@ -383,6 +398,7 @@ class Log(object):
         xlib_version = Xlib.__version_string__ if XLIB_PRESENT else 'no'
         Log.sysinfo('xlib', xlib_version)
         Log.sysinfo(PROG_NAME, VERSION_NAME)
+        Log.sysinfo('encoding', ENCODING)
 
 class ConfigError(Exception):
     """Base class for Config exceptions."""
@@ -474,31 +490,48 @@ class Config(object):
         corresponding `Config` attributes. Call `parse()` methods of
         `rules` and `history` objects at the end.
         """
+        try:
+            f = open(Config._filename)
+        except IOError, e:
+            raise ConfigError(e)
+        try:
+            conf = f.read()
+        except IOError, e:
+            raise ConfigError(e)
+        finally:
+            f.close()
+        try:
+            uconf = conf.decode(ENCODING)
+        except UnicodeDecodeError:
+            raise ConfigError('cannot decode configuration file contents '
+                                 'with encoding %s' % ENCODING)
+        uconfIO = StringIO.StringIO(uconf)
         config = RawConfigParser(OrderedDict(), OrderedDict)
         try:
-            config.read(Config._filename)
-        except ConfigParser.Error, cpe:
-            raise ParseError(str(cpe))
+            config.readfp(uconfIO)
+        except ConfigParser.Error, e:
+            raise ParseError(e)
         else:
-            for sec in ('SETTINGS', 'RULES'):
+            for sec in (u'SETTINGS', u'RULES'):
                 if not config.has_section(sec):
-                    raise MissingSection(sec)
-            items = dict(config.items('SETTINGS'))
+                    raise MissingSection(str(sec))
+            items = dict(config.items(u'SETTINGS'))
             Log.info('config', 'option values: %s', str(items))
             options = set(items.keys())
             keys = set(Config._defaults.keys())
             missing = keys.difference(options)
             unrecognized = options.difference(keys)
             for opt in missing:
-                raise MissingOption(opt)
+                raise MissingOption(escape(opt))
             for opt in unrecognized:
-                raise UnrecognizedOption(opt)
+                raise UnrecognizedOption(escape(opt))
             Config._parse_options(items, Config._get_valid_opts())
-            rules.parse()
+            start, end = Config.find_section(u'RULES', uconf)
+            rules.parse(uconf[start:end])
             if Config.history_length != 0:
-                if not config.has_section('HISTORY'):
+                if not config.has_section(u'HISTORY'):
                     raise MissingSection('HISTORY')
-                history.parse(config.items('HISTORY'))
+                history.parse(config.items(u'HISTORY'))
 
     @staticmethod
     def write(config=None):
@@ -515,7 +548,7 @@ class Config(object):
                 tempfilename = os.path.join(dir_,
                     Config._filename + '.%s~' % PROG_NAME)
                 f = open(tempfilename, 'w')
-            f.write(config)
+            f.write(config.encode(ENCODING))
             f.flush()
             os.fsync(f.fileno())
             if rewrite:
@@ -537,14 +570,22 @@ class Config(object):
 
     @staticmethod
     def read():
+        f = open(Config._filename, 'r')
         try:
-            f = open(Config._filename, 'r')
             config = f.read()
-        except IOError: raise
-        else: return config
-        finally: f.close()
+        except IOError:
+            raise
+        else:
+            try:
+                uconfig = config.decode(ENCODING)
+            except UnicodeDecodeError:
+                raise ParseError('cannot decode configuration file contents '
+                                 'with encoding %s' % ENCODING)
+            return uconfig
+        finally:
+            f.close()
 
-    SECRE = r"""
+    SECRE = ur"""
         (?P<section>^\[%s\].*?)         # a section header and a body
         (?=\s*                          # don't include whitespaces
         (?: (?:^\[[^]]+\])              # a new section
@@ -556,10 +597,10 @@ class Config(object):
         """Return a tuple containing the start and end positions of `section`
         in `config` string. If not found `MissingSection` is raised."""
         secre = re.compile(Config.SECRE % section,
-                           re.DOTALL | re.MULTILINE | re.VERBOSE)
+                           re.DOTALL | re.MULTILINE | re.VERBOSE | re.UNICODE)
         m = secre.search(config)
         if m is None:
-            raise MissingSection(section)
+            raise MissingSection(escape(section))
         else:
             return m.span()
 
@@ -581,7 +622,8 @@ class Config(object):
                     setattr(Config, opt, value)
                     continue
                 else:
-                    raise OptionValueError('SETTINGS', opt, value, possible)
+                    raise OptionValueError('SETTINGS', escape(opt),
+                                           escape(value), possible)
             elif callable(possible):
                 setattr(Config, opt, possible(value))
             elif possible is None:
@@ -599,14 +641,16 @@ class Config(object):
             elif mod == 'Alt': mods[i] = 'Mod1'
             elif mod == 'Super': mods[i] = 'Mod4'
             else:
-                raise OptionValueError("SETTINGS", 'modifiers', modifier_str,
+                raise OptionValueError("SETTINGS", 'modifiers',
+                    escape(modifier_str),
                     message="invalid modifier name '%s'" % mod)
         return mods
 
     def _parse_title_format(title_format):
         """Check title_format contains not more than one %t and %s"""
         if title_format.count('%t') > 1 or title_format.count('%s') > 1:
-            raise OptionValueError("SETTINGS", "title_format", title_format,
+            raise OptionValueError("SETTINGS", "title_format",
+                escape(title_format),
                 message="only one occurance of %t or %s is possible")
         return title_format
 
@@ -614,10 +658,11 @@ class Config(object):
         try:
             hist_len = int(history_length)
         except ValueError:
-            raise OptionValueError("HISTORY", "history_length", history_length,
-                                   message="")
+            raise OptionValueError("HISTORY", "history_length",
+                                   escape(history_length), message="")
         if(hist_len < 0):
-            raise OptionValueError("HISTORY", "history_length", history_length,
+            raise OptionValueError("HISTORY", "history_length",
+                                   escape(history_length),
                                    message="the value must be positive")
         return hist_len
 
@@ -626,7 +671,7 @@ class Config(object):
         'modifiers'        : ('Super', _parse_modifiers),
         'group_windows_by' : ('AWN', ('AWN', 'Group', 'None')),
         'title_format'     : ('%t   /%s/', _parse_title_format),
-        'history_length'   : (15, _parse_history_length),
+        'history_length'   : ('15', _parse_history_length),
         'desktop_action'   : ('SwitchDesktop', ('SwitchDesktop', 'MoveWindow',
                                               'None')),
         }
@@ -640,7 +685,7 @@ class Config(object):
     """
 
     _config_str = re.compile('^ +', re.M).sub('',
-     """[SETTINGS]
+     u"""[SETTINGS]
      # Keyboard Layout. This is used to produce keybindings that are easier to
      # press with your keyboard layout.
      # Possible values: Dvorak, QWERTY.
@@ -681,7 +726,7 @@ class Config(object):
      # It's recommended to set the option to slightly larger value than the
      # number of windows you use regularly but not much larger than 20 (because
      # of the limit of 27 latin letters).
-     history_length = %(history_length)d
+     history_length = %(history_length)s
 
      [HISTORY]
 
@@ -730,13 +775,14 @@ class History(OrderedDict):
 
     def parse(self, history):
         Log.debug('config', 'parsing history...')
+        isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
         history.reverse()
         for item in history:
-            if len(item[1]) == 1 and item[1].isalpha():
+            if len(item[1]) == 1 and isalpha(item[1]):
                 self[item[0]] = item[1]
             else:
-                Log.warning('config', 'shortcut should be an alphabetical' +
-                "character: '%s', ignored", item[1])
+                Log.warning('config', 'shortcut should be a latin '
+                            "alphabetical character: '%s', ignored", item[1])
         self.truncate()
         Log.info('config', 'parsed history: %s', str(self))
 
@@ -755,10 +801,10 @@ class History(OrderedDict):
                 items.insert(0, awn + ' = ' + self[awn])
         body = '\n'.join(items)
         try:
-            Config.write_section('HISTORY', body)
+            Config.write_section(u'HISTORY', body)
         except (IOError, OSError, MissingSection), e:
             Log.exception('config',
-                          'when writing the history: %s' % str(e))
+                          'when writing the history: %s' % e)
         else:
             Log.info('config', 'history written: %s' % str(self))
 
@@ -770,39 +816,33 @@ class History(OrderedDict):
 class Rules(list):
     """Extend list. Contain tuples (type, regex, awn)."""
 
-    def parse(self):
+    def parse(self, section):
         """Read a configuration file and parse RULES section."""
-        Log.debug('config', 'parsing rules...')
-        try:
-            config = Config.read()
-            start, end = Config.find_section('RULES', config)
-        except (IOError, MissingSection), e:
-            Log.exception('config', 'when reading RULES: %s' % str(e))
-            return
         rules = []
-        bodylines = config[start:end].splitlines()[1:]
+        bodylines = section.splitlines()[1:]
         for line in bodylines:
             stripline = line.lstrip()
             if stripline == '' or stripline.startswith('#'):
                 continue
-            h1, s1, t1 = map(str.strip, line.rpartition('='))
-            h2, s2, t2 = map(str.strip, line.rpartition(':'))
+            h1, s1, t1 = map(unicode.strip, line.rpartition('='))
+            h2, s2, t2 = map(unicode.strip, line.rpartition(':'))
             opt, awn = (h1, t1) if len(h1) > len(h2) else (h2, t2)
             if opt == '':
-                raise OptionValueError('RULES', opt, awn, message='')
+                raise OptionValueError('RULES', escape(opt), escape(awn),
+                                       message='')
             if opt.startswith('class.'):
                 type_ = Window.CLASS
             elif opt.startswith('title.'):
                 type_ = Window.NAME
             else:
-                raise OptionValueError('RULES', opt, awn,
+                raise OptionValueError('RULES', escape(opt), escape(awn),
                     message="option should start with 'class.' or 'title.'")
             regex = opt[6:]
             try:
-                pattern = re.compile(regex, re.I)
+                pattern = re.compile(regex, re.I | re.UNICODE)
             except re.error, e:
-                raise OptionValueError("RULES", opt, awn,
-                    message="invalid regex: %s: %s" % (str(e), regex))
+                raise OptionValueError("RULES", escape(opt), escape(awn),
+                    message="invalid regex: %s: %s" % (e, escape(regex)))
             else:
                 self.append((type_, pattern, awn))
                 rules.append((type_, regex, awn)) # just for debugging
@@ -821,7 +861,7 @@ class Rules(list):
                 try:
                     awn = regex.sub(awn, name, 1)
                 except re.error, e:
-                    Log.exception('config', '%s: awn = %s ' % (str(e), awn))
+                    Log.exception('config', '%s: awn = %s ' % (e, awn))
                     return winclass
                 else:
                     return awn
@@ -842,8 +882,15 @@ class KeyboardLayout(object):
             # qwerty layout with 3 rows by 10 characters
             self.keys = self.qwerty
         else:
-            raise ValueError("Unknown keyboard layout name: %s" % layout)
+            raise ValueError("Unknown keyboard layout name: %s" %
+                             escape(layout))
         self.indexes = dict(zip(self.keys, range(len(self.keys))))
+
+    def __contains__(self, char):
+        return char in self.indexes
+
+    def isalpha(self, char):
+        return char in self and char.isalpha()
 
 class ShortcutGenerator(object):
     """Class which generates shortcuts for specified windows taking into
@@ -894,11 +941,11 @@ class ShortcutGenerator(object):
 
     def _new_base(self, name, bases):
         for base in name:
-            if base not in bases and base.isalpha():
+            if base not in bases and self.layout.isalpha(base):
                 return base
         free_bases = set(self.layout.keys).symmetric_difference(bases)
         for base in free_bases:
-            if base.isalpha():
+            if self.layout.isalpha(base):
                 return base
         return None                     # all the bases are overed
 
@@ -1027,7 +1074,9 @@ class Window(object):
     shortcut = property(_get_shortcut, _set_shortcut)
 
     def __str__(self):
-        return str(self.__dict__)
+        d = self.__dict__
+        str_or_hex = lambda k, v: hex(v) if k in ('wid', 'gid') else unicode(v)
+        return ', '.join(['%s: %s' % (k, str_or_hex(k, d[k])) for k in d])
 
 class BadWindow(Exception):
     """Wrapper for Xlib's BadWindow exception"""
@@ -1153,29 +1202,21 @@ class Xtool(object):
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if name:
-            return unicode(name.value, 'utf-8')
+            return name.value.decode('utf-8')
         else:
-            return unicode(win.get_wm_name())
+            return win.get_wm_name().decode()
 
     @staticmethod
-    def get_window_application(wid):
+    def get_window_class(wid, instance=False):
         try:
             cls = Xtool._get_window(wid).get_wm_class()
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if cls:
-            return cls[0]
-        else:
-            return ''
-
-    @staticmethod
-    def get_window_class(wid):
-        try:
-            cls = Xtool._get_window(wid).get_wm_class()
-        except Xlib.error.BadWindow:
-            raise BadWindow(wid)
-        if cls:
-            return cls[1]
+            if instance == False:
+                return cls[1].decode()
+            else:
+                return cls[0].decode()
         else:
             return ''
 
@@ -1354,7 +1395,7 @@ class Xtool(object):
                     if not Xtool._is_key_release_fake(keycode):
                         Xtool._key_listener.on_key_release(keycode)
             except Xlib.error.ConnectionClosedError, e:
-                raise ConnectionClosedError(str(e))
+                raise ConnectionClosedError(e)
 
 class KeyBinderError(Exception):
     """Base class for KeyBinder exceptions."""
@@ -1411,7 +1452,7 @@ class KeyBinder(object):
             elif modifier == 'Mod4':
                 modmask = modmask | Xlib.X.Mod4Mask
             else:
-                raise ValueError('Bad modifier name:%s\n' % modifier)
+                raise ValueError('Bad modifier name:%s\n' % escape(modifier))
         return modmask
 
     def bind(self, shortcut, callback, modifiers=None):
@@ -1426,7 +1467,7 @@ class KeyBinder(object):
         if modifiers is not None:
             keycode = Xtool.get_keycode(shortcut, use_keysym=True)
             if not keycode:
-                raise BadShortcut(shortcut)
+                raise BadShortcut(escape(shortcut))
             modmask = self._get_modmask(modifiers)
             Xtool.grab_key(keycode, modmask, onerror=ec)
             Xtool.sync()
@@ -1440,7 +1481,7 @@ class KeyBinder(object):
             Xtool.grab_key(keycode, self._modmask, onerror=ec)
             Xtool.sync()
             if ec.get_error():
-                raise GrabError(shortcut, self._modmask)
+                raise GrabError(escape(shortcut), self._modmask)
             base_key = shortcut[0]
             if base_key not in self._bindings:
                 self._bindings[base_key] = [(shortcut, callback)]
@@ -1647,7 +1688,7 @@ class WindowManager(object):
             window.name = Xtool.get_window_name(window.wid)
             window.klass = Xtool.get_window_class(wid)
         except BadWindow, e:
-            Log.exception('windows', str(e))
+            Log.exception('windows', e)
             return
         window.awn = self._rules.get_awn(window.klass, window.name)
         if Config.group_windows_by == 'Group':
@@ -1657,7 +1698,7 @@ class WindowManager(object):
         if not window.gid:
             window.gid = self._windows.get_unique_group_id()
         self._add_shortcut(window)
-        Log.info('windows', 'new window attributes: %s' % str(window))
+        Log.info('windows', 'new window attributes: %s' % window)
         if window.shortcut:
             if window.awn not in self._windows.get_all_awns():
                 self._history.update_item(window.awn, window.shortcut[0])
@@ -1694,7 +1735,7 @@ class WindowManager(object):
         try:
             new_name = Xtool.get_window_name(window.wid)
         except BadWindow, e:
-            Log.exception('windows', str(e))
+            Log.exception('windows', e)
             return
         edges = Config.title_format.split('%t')
         start = edges[0].replace('%s', prev_shortcut)
@@ -1729,7 +1770,7 @@ class SignalHandler:
         try:
             SignalHandler.history.write()
         except (IOError, OSError, MissingSection), e:
-            Log.exception('config', str(e))
+            Log.exception('config', e)
 
     @staticmethod
     def handle_all(history=None):
@@ -1746,7 +1787,7 @@ def graceful_exit(exit_code=0, history=None):
         try:
             history.write()
         except (IOError, OSError, MissingSection), e:
-            Log.exception('config', str(e))
+            Log.exception('config', e)
     logging.shutdown()
     sys.exit(exit_code)
 
@@ -1864,7 +1905,7 @@ def parse_options():
                         'larger: %d' % options.backup_count)
     return options
 
-if __name__ == "__main__":
+def main():
     options = parse_options()
     if options.print_defaults:
         print Config.get_default_config()
@@ -1895,25 +1936,28 @@ if __name__ == "__main__":
         try:
             Config.parse(rules, history)
         except ConfigError, e:
-            Log.exception('config', str(e))
+            Log.exception('config', e)
             graceful_exit(1)
     else:
         try:
             Config.write()
         except IOError, e:
-            Log.exception('config', str(e))
+            Log.exception('config', e)
             graceful_exit(1)
         else:
             Config.use_defaults()
     try:
         Xtool.connect(options.display)
     except Xlib.error.DisplayError, e:
-        Log.exception('X', str(e))
+        Log.exception('X', e)
         graceful_exit(1)
     WindowManager(rules, history)       # everything starts here
     SignalHandler.handle_all(history)
     try:
         Xtool.event_loop()              # and continues here
     except ConnectionClosedError, e:
-        Log.exception('X', str(e))
+        Log.exception('X', e)
         graceful_exit(1, history)
+
+if __name__ == "__main__":
+    main()
