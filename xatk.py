@@ -134,16 +134,16 @@ class OrderedDict(dict, DictMixin):
         return not self == other
 
 def escape(string):
-    """Escape non-ascii characters in the string (unicode or str) and return
-    ascii representation of the string.
+    """
+    Escape non-ascii characters in the string (unicode, str or object)
+    and return ascii representation of the string.
     """
     if isinstance(string, unicode):
         return repr(string)[2:-1]
     elif isinstance(string, str):
         return repr(string)[1:-1]
     else:
-        raise TypeError('string object was expected, passed: %s' %
-                        type(string))
+        return repr(unicode(string))[2:-1]
 
 class Log(object):
     """Provide static methods for logging similar to those in the logging
@@ -636,15 +636,13 @@ class Config(object):
 
     def _parse_modifiers(modifier_str):
         mods = modifier_str.split('+')
-        for i, mod in enumerate(mods):
-            if mod in ('Control', 'Shift'): pass
-            elif mod == 'Alt': mods[i] = 'Mod1'
-            elif mod == 'Super': mods[i] = 'Mod4'
-            else:
-                raise OptionValueError("SETTINGS", 'modifiers',
-                    escape(modifier_str),
-                    message="invalid modifier name '%s'" % mod)
-        return mods
+        try:
+            fake_kb = Keybinding(mods + ['a'], lambda: None)
+        except KeybindingError, e:
+            raise OptionValueError("SETTINGS", 'modifiers',
+                                   escape(modifier_str),
+                                   message=escape(e))
+        return fake_kb.modifiers + fake_kb.keys[:-1]
 
     def _parse_title_format(title_format):
         """Check title_format contains not more than one %t and %s"""
@@ -1041,7 +1039,8 @@ class Window(object):
     - `klass`: window class
     - `shortcut`: is represented by a string of length one or two (e.g. 'a' or
       'bn', where 'a' is the base key, 'b' is the prefix, and 'n' is the
-      suffix).
+      suffix)
+    - `keybinding`: keybinding object
     """
 
     CLASS = 0
@@ -1170,7 +1169,7 @@ class Xtool(object):
             Xtool._mod_keycodes.remove(0)
 
     @staticmethod
-    def is_mofifier(keycode):
+    def is_modifier(keycode):
         return keycode in Xtool._mod_keycodes
 
     @staticmethod
@@ -1358,7 +1357,7 @@ class Xtool(object):
     @staticmethod
     def _is_key_release_fake(keycode):
         """Return True if KeyRelease event was caused by auto-repeat mode."""
-        if Xtool.is_mofifier(keycode):
+        if Xtool.is_modifier(keycode):
             return False                # modifiers are never auto-repeated
         if not Xtool._is_key_pressed(keycode):
             try:
@@ -1386,16 +1385,220 @@ class Xtool(object):
                         event.window.id)
                 elif event.type == Xlib.X.KeyPress:
                     Xtool._last_key_event_time = event.time
-                    keycode = event.detail
-                    if not Xtool._is_key_press_fake(keycode):
-                        Xtool._key_listener.on_key_press(keycode)
+                    if not Xtool._is_key_press_fake(event.detail):
+                        Xtool._key_listener.on_key_press(event)
                 elif event.type == Xlib.X.KeyRelease:
                     Xtool._last_key_event_time = event.time
-                    keycode = event.detail
-                    if not Xtool._is_key_release_fake(keycode):
-                        Xtool._key_listener.on_key_release(keycode)
+                    if not Xtool._is_key_release_fake(event.detail):
+                        Xtool._key_listener.on_key_release(event)
             except Xlib.error.ConnectionClosedError, e:
                 raise ConnectionClosedError(e)
+
+class KeybindingError(Exception):
+    """Base class for keybinding errors."""
+
+class CyclicKeybindingError(KeybindingError):
+    """Raised when keybinding is cyclic and two last keys are the same."""
+
+    def __init__(self, symbols):
+        self.keybinding = escape('+'.join(symbols))
+
+    def __str__(self):
+        return "cyclic keybinding '%s' is invalid" % self.keybinding
+
+class InvalidKeyError(KeybindingError):
+    """
+    Bad key name, or it is not present on the keyboard, or bad modifier
+    name.
+    """
+
+    def __init__(self, symbols, key):
+        self.keybinding = escape('+'.join(symbols))
+        self.key = escape(key)
+
+    def __str__(self):
+        if self.key:
+            return ("keybinding '%s': invalid key or modifier name: '%s'" %
+                    (self.keybinding, self.key))
+        else:
+            return "keybinding '%s': no key" % escape(self.keybinding)
+
+class KeybindingCollisionError(KeybindingError):
+    """New keybinding collides with the existing one."""
+
+    def __init__(self, kb1, kb2):
+        self.kb1 = escape(kb1)
+        self.kb2 = escape(kb2)
+
+    def __str__(self):
+        return "keybinding '%s' collides with '%s'" % (self.kb1, self.kb2)
+
+class Keybinding(object):
+
+    def __init__(self, symbols, callback, cycleback=None):
+        (self.modifiers, self.modmask,
+         self.keys, self.keycodes) = self._parse(symbols)
+        self.call = callback
+        if cycleback:
+            self.cyclic = True
+            self.cycle = cycleback
+        else:
+            self.cyclic = False
+        if self.cyclic and len(self.keycodes) >= 2:
+            if self.keycodes[-1] == self.keycodes[-2]:
+                raise CyclicKeybindingError(symbols)
+
+    def __str__(self):
+        return '+'.join(self.modifiers + self.keys)
+
+    def _parse(self, symbols):
+        """
+        Split symbols into modifiers and keys, obtain modmask and keycodes.
+        Return (modifiers, modmask, keys, keycodes) tuple.
+        """
+        modmask = 0
+        keycodes = []
+        for i, mod in enumerate(symbols):
+            mask = self._get_modmask(mod)
+            if mask is not None:
+                modmask |= mask
+            else:
+                break
+        self.modmask = modmask
+        modifiers = symbols[:i]
+        keys = symbols[i:]
+        if not keys:
+            InvalidKeyError(symbols, None)
+        for key in keys:
+            keycode = Xtool.get_keycode(key, True)
+            if keycode == 0:
+                raise InvalidKeyError(symbols, key)
+            else:
+                keycodes.append(keycode)
+        return modifiers, modmask, keys, keycodes
+
+    def _get_modmask(self, modifier):
+        if modifier in ('Shift', 'S'):
+            return Xlib.X.ShiftMask
+        elif modifier in ('Control', 'Ctrl', 'C'):
+            return Xlib.X.ControlMask
+        elif modifier in ('Mod1', 'Alt', 'A'):
+            return Xlib.X.Mod1Mask
+        elif modifier in ('Mod4', 'Super', 'U'):
+            return Xlib.X.Mod4Mask
+        else:
+            return None
+
+    def match_partial(self, keycodes, modmask):
+        if self.modmask == modmask:
+            return self.keycodes[:len(keycodes)] == keycodes
+        return False
+
+    def match_full(self, keycodes, modmask):
+        return self.modmask == modmask and self.keycodes == keycodes
+
+    def match_cyclic(self, keycodes, modmask):
+        return (self.cyclic and
+                self.modmask == modmask and
+                (self.keycodes == keycodes or
+                 self.keycodes[:-1] == keycodes))
+
+    def collideswith(self, keybinding):
+        """
+        Return True if keybinding collides with passed `keybinding`.
+
+        Collision examples:
+        - mod+a and mod+a
+        - mod+ab and mod+abb
+        - mod+a (non-cyclic) and mod+ab (cyclic)
+        Next keybindings do not collide:
+        - mod+a and mod2+a
+        - mod+a and mod+ab
+        - mod+ab and mod+abc
+        """
+        # mod+a and mod2+a
+        if self.modmask != keybinding.modmask:
+            return False
+        # mod+a and mod+a
+        if self.keycodes == keybinding.keycodes:
+            return True
+        minlen = min(len(self.keycodes), len(keybinding.keycodes))
+        if len(self.keycodes) > len(keybinding.keycodes):
+            longkb, shortkb = (self, keybinding)
+        else:
+            longkb, shortkb = (keybinding, self)
+        # mod+a (non-cyclic) and mod+ab (cyclic)
+        if not shortkb.cyclic and longkb.cyclic:
+            if longkb.keycodes[:-1] == shortkb.keycodes:
+                return True
+        # mod+ab and mod+abb
+        if len(longkb.keycodes) != len(shortkb.keycodes):
+            if longkb.keycodes[:minlen] == shortkb.keycodes:
+                if longkb.keycodes[minlen - 1] == longkb.keycodes[minlen]:
+                    return True
+        return False
+
+class KeybindingList(list):
+
+    def __init__(self):
+        self._marker = None             # last cyclic keybinding
+
+    def set_marker(self, keybinding):
+        self._marker = keybinding
+
+    def reset_marker(self):
+        self._marker = None
+
+    def find_partial(self, keycodes, modmask):
+        """
+        Return a keybinding object if only one matching keybinding exists.
+        Return 1 if more than one, and 0 if no such keybinding.
+        """
+        found = 0
+        res = None
+        for kb in self:
+            if kb.match_partial(keycodes, modmask):
+                if found == 1:
+                    return 1
+                res = kb
+                found += 1
+        if res is not None:
+            return res
+        return 0
+
+    def find_full(self, keycodes, modmask):
+        """
+        Return the keybinding with exact matching of `keycodes` and
+        `modmask`
+        """
+        for kb in self:
+            if kb.match_full(keycodes, modmask):
+                return kb
+
+    def find_cyclic(self, keycodes, modmask):
+        """
+        Return the first matching cyclic keybinding after the marker
+        if it is set and matches. Otherwise, return the first matching
+        cyclic keybinding.
+        """
+        marker_found = False
+        first_kb = None
+        for i, kb in enumerate(self):
+            if kb.match_cyclic(keycodes, modmask):
+                if first_kb is None:
+                    first_kb = kb
+                if marker_found:
+                    return kb
+                elif kb == self._marker:
+                    marker_found = True
+        return first_kb
+
+    def append(self, keybinding):
+        for kb in self:
+            if kb.collideswith(keybinding):
+                raise KeybindingCollisionError(keybinding, kb)
+        keybinding._marker = self._marker
+        list.append(self, keybinding)
 
 class KeyBinderError(Exception):
     """Base class for KeyBinder exceptions."""
@@ -1413,182 +1616,113 @@ class BadShortcut(KeyBinderError):
 class GrabError(KeyBinderError):
     """Raised when the key is already grabbed."""
 
-    def __init__(self, shortcut, modmask):
-        self.shortcut = shortcut
-        self.modmask = modmask
+    def __init__(self, keybinding):
+        self.keybinding = keybinding
 
     def __str__(self):
-        return ("can't grab key '%s' with modifier mask %s. It is already " +
-        "grabbed by another program.") % (self.shortcut[0], hex(self.modmask))
+        return ("can't grab key %s. It is already " +
+        "grabbed by another program.") % (self.keybinding)
 
 class KeyBinder(object):
 
-    _bindings = dict()
-    """Complex keybindings: shortcuts of length two are allowed.
-    Multiple pressing a base key call respective callback functions
-    alternately.
-    Format: {base_key: [(shortcut, callback), ...], ...}
-    base_key and bindings[base_key][0] must be equal.
-    Default modifier (passed to `self.__init__()`) is used."""
-
-    _bindings2 = list()
-    """Simple keybindings: only one length shortcuts.
-    `_bindings2` format: {(shortcut, modmask): callback, ...}"""
-
-    def __init__(self, modifiers):
-        self._modmask = self._get_modmask(modifiers)
-        self._key_listener = KeyListener(self._bindings)
+    def __init__(self):
+        self._kblist = KeybindingList()
+        self._key_listener = KeyListener(self._kblist)
         Xtool.register_key_listener(self._key_listener)
+        for kb in self._kblist:
+            self.bind(kb)
 
-    def _get_modmask(self, modifiers):
-        modmask = 0
-        for modifier in modifiers:
-            if modifier == 'Shift':
-                modmask = modmask | Xlib.X.ShiftMask
-            elif modifier == 'Control':
-                modmask = modmask | Xlib.X.ControlMask
-            elif modifier == 'Mod1':
-                modmask = modmask | Xlib.X.Mod1Mask
-            elif modifier == 'Mod4':
-                modmask = modmask | Xlib.X.Mod4Mask
-            else:
-                raise ValueError('Bad modifier name:%s\n' % escape(modifier))
-        return modmask
-
-    def bind(self, shortcut, callback, modifiers=None):
-        """Bind `shortcut` to `callback` function.
-
-        When `modifiers` is None, use default modifiers to form
-        keybinding. `shortcut` could have one or two keys. These keybindings
-        are used to bind window actions.
-        With `modifiers` being a list of modifiers only one key shortcuts are
-        allowed. THIS KIND OF KEYBINDINGS ISN'T IMPLEMENTED YET."""
+    def bind(self, keybinding):
+        kb = keybinding
+        found = self._kblist.find_partial([kb.keycodes[0]], kb.modmask)
+        self._kblist.append(kb)
+        if found:
+            return
         ec = Xlib.error.CatchError(Xlib.error.BadAccess)
-        if modifiers is not None:
-            keycode = Xtool.get_keycode(shortcut, use_keysym=True)
-            if not keycode:
-                raise BadShortcut(escape(shortcut))
-            modmask = self._get_modmask(modifiers)
-            Xtool.grab_key(keycode, modmask, onerror=ec)
-            Xtool.sync()
-            if ec.get_error():
-                raise GrabError(shortcut, self._modmask)
-            self._bindings2[(shortcut, modmask)] = callback
-        else:
-            keycode = Xtool.get_keycode(shortcut[0])
-            if not keycode:
-                raise BadShortcut(shortcut)
-            Xtool.grab_key(keycode, self._modmask, onerror=ec)
-            Xtool.sync()
-            if ec.get_error():
-                raise GrabError(escape(shortcut), self._modmask)
-            base_key = shortcut[0]
-            if base_key not in self._bindings:
-                self._bindings[base_key] = [(shortcut, callback)]
-            else:
-                self._bindings[base_key].append((shortcut, callback))
+        Xtool.grab_key(kb.keycodes[0], kb.modmask, onerror=ec)
+        Xtool.sync()
+        if ec.get_error():
+            raise GrabError(escape(keybinding))
 
-    def unbind(self, shortcut):
-        """Delete keybinding and ungrab key."""
-        base_key = shortcut[0]
-        binds = self._bindings[base_key]
-        i = [bind[0] for bind in binds].index(shortcut)
-        del binds[i]
-        if not binds:
-            del self._bindings[base_key]
-        if len(shortcut) == 1:
-            Xtool.ungrab_key(Xtool.get_keycode(shortcut[0]), self._modmask)
+    def unbind(self, keybinding):
+        kb = keybinding
+        self._kblist.remove(kb)
+        if not self._kblist.find_partial([kb.keycodes[0]], kb.modmask):
+            Xtool.ungrab_key(kb.keycodes[0], kb.modmask)
 
     def unbind_all(self):
         """Delete all the keybindings and ungrab related keys."""
-        for base in self._bindings:
-            Xtool.ungrab_key(Xtool.get_keycode(base), self._modmask)
-        self._bindings.clear()
+        km = [(kb.keycodes[0], kb.modmask) for kb in self._kblist]
+        for key, modmask in set(km):
+            Xtool.ungrab_key(key, modmask)
+        self._kblist.clear()
 
 class KeyListener(object):
     """`KeyListener` recieves the key events, determines the pressed
     keybindings, and calls the appropriate functions."""
 
-    def __init__(self, bindings):
-        self._bindings = bindings
+    def __init__(self, kblist):
+        self._kblist = kblist
         self._initial_state()
 
-    RELEASED, PRESSED = 0, 1
-
     def _initial_state(self):
-        self._modifier_sate = self.PRESSED
-        self._base_state = self.RELEASED
-        self._next_shortcut = None
+        self.keycodes = []
+        self._modmask = None
+        self._kbd_grabbed = False
+        self._cycling = False
+        self._kblist.reset_marker()
 
-    def on_key_press(self, keycode):
-        # base key pressed
-        if self._base_state == self.RELEASED:
-            self._base_state = self.PRESSED
-            base_key = Xtool.get_key(keycode)
-            if not base_key or base_key not in self._bindings:
-                self._initial_state()
-                return
-            Log.debug('keys', 'base key press: %s', base_key)
-            self._last_base = base_key
+    def _grab_keyboard(self):
+        if not self._kbd_grabbed:
             Xtool.grab_keyboard()
-            # only one shortcut for given base key, call corresponding function
-            if len(self._bindings[base_key]) == 1:
-                Log.info('keys', "keybinding caught: '%s'",
-                    self._bindings[base_key][0][0])
-                self._bindings[base_key][0][1]()
-                Xtool.ungrab_keyboard()
-                self._initial_state()
-        # suffix key pressed
-        elif self._base_state == self.PRESSED:
-                suffix_key = Xtool.get_key(keycode)
-                if not suffix_key:
-                    self._initial_state()
-                    return
-                Log.debug('keys', 'suffix press: %s', suffix_key)
-                shortcuts = [bind[0] for bind in
-                             self._bindings[self._last_base]]
-                shortcut = self._last_base + suffix_key
-                try:
-                    i = shortcuts.index(shortcut)
-                except ValueError: pass # unregistered keybinding, ignore it
-                else:
-                    Log.info('keys', "keybinding caught: '%s'", shortcut)
-                    self._bindings[self._last_base][i][1]()
-                finally:
-                    Xtool.ungrab_keyboard()
-                    self._initial_state()
+            self._kbd_grabbed = True
 
-    def on_key_release(self, keycode):
-        key = Xtool.get_key(keycode)
-        # modifier released
-        if Xtool.is_mofifier(keycode):
-            Log.debug('keys', 'modifier release, keycode: 0x%x', keycode)
-            self._modifier_sate = self.RELEASED
-            if self._base_state == self.RELEASED:
-                Xtool.ungrab_keyboard()
-                self._initial_state()
-        # base key released
-        elif key == self._last_base:
-            Log.debug('keys', 'base key release: %s', key)
-            if self._base_state == self.PRESSED:
-                self._base_state = self.RELEASED
-                if self._next_shortcut is None or \
-                        self._next_shortcut[0] != self._last_base:
-                    shortcut = self._last_base
-                else:
-                    shortcut = self._next_shortcut
-                bindings = self._bindings[self._last_base]
-                i = [bind[0] for bind in bindings].index(shortcut)
-                next_i = (i + 1) % len(bindings)
-                self._next_shortcut = bindings[next_i][0]
-                Log.info('keys', "keybinding caught: '%s'", shortcut)
-                bindings[i][1]()
-                if self._modifier_sate == self.RELEASED:
-                    Xtool.ungrab_keyboard()
-                    self._initial_state()
-        # suffix key released
+    def _ungrab_keyboard(self):
+        if self._kbd_grabbed:
+            Xtool.ungrab_keyboard()
+            self._kbd_grabbed = False
+
+    def on_key_press(self, ev):
+        if self._modmask is None:
+            self._modmask = ev.state
+        if self._cycling and ev.detail == self.keycodes[-1]:
+            return
+        self._grab_keyboard()
+        self.keycodes.append(ev.detail)
+        kb = self._kblist.find_partial(self.keycodes, self._modmask)
+        if kb == 0:
+            self._ungrab_keyboard()
+            self._initial_state()
+        elif kb == 1:
+            pass
         else:
-            Log.debug('keys', 'suffix key release: %s', key)
+            kb.call()
+            self._ungrab_keyboard()
+            self._initial_state()
+
+    def on_key_release(self, ev):
+        if Xtool.is_modifier(ev.detail):
+            if self._cycling:
+                self._ungrab_keyboard()
+                self._initial_state()
+            return
+        if ev.detail != self.keycodes[-1]:
+            return
+        kb = self._kblist.find_cyclic(self.keycodes, self._modmask)
+        if kb:
+            kb.cycle()
+            if self._modmask != ev.state:
+                self._ungrab_keyboard()
+                self._initial_state()
+            else:
+                self._cycling = True
+                self._kblist.set_marker(kb)
+        else:
+            kb = self._kblist.find_full(self.keycodes, self._modmask)
+            if kb:
+                kb.call()
+                self._ungrab_keyboard()
+                self._initial_state()
 
 class WindowManager(object):
     """`WindowManager` tracks changes of the window list, their names, assigns
@@ -1598,7 +1732,7 @@ class WindowManager(object):
         self._rules = rules
         self._history = history
         self._shortgen = ShortcutGenerator()
-        self._keybinder = KeyBinder(Config.modifiers)
+        self._keybinder = KeyBinder()
         self._windows = WindowList()
         for wid in Xtool.get_window_list():
             self._on_window_create(wid)
@@ -1615,7 +1749,10 @@ class WindowManager(object):
 
         def raise_window(wid=wid, action=action):
             Xtool.raise_window(wid, action)
-        self._keybinder.bind(shortcut, raise_window)
+        kb = Keybinding(Config.modifiers + list(shortcut),
+                        raise_window, raise_window)
+        self._keybinder.bind(kb)
+        return kb
 
     def on_window_list_changed(self):
         old_wids = set([win.wid for win in self._windows])
@@ -1648,7 +1785,7 @@ class WindowManager(object):
         all the other windows of the group."""
         wins_closed = self._windows.get_windows(wids)
         for win_closed in wins_closed:
-            self._keybinder.unbind(win_closed.shortcut)
+            self._keybinder.unbind(win_closed.keybinding)
             Log.info(('keys', 'windows'), "window '%s' (id=0x%x) was " +
                      "unbinded from '%s'", win_closed.name, win_closed.wid,
                      win_closed.shortcut)
@@ -1660,7 +1797,7 @@ class WindowManager(object):
                 base_key = wins[0].shortcut[0]
                 # rebind all the windows of the group
                 for win in wins:
-                    self._keybinder.unbind(win.shortcut)
+                    self._keybinder.unbind(win.keybinding)
                     win.prev_shortcut, win.shortcut = win.shortcut, None
                 for i, win in enumerate(wins):
                     if i == 0: # base key for the group should remain the same
@@ -1717,13 +1854,14 @@ class WindowManager(object):
                 window.shortcut = None
                 return
             try:
-                self._bind(window.wid, shortcut)
-            except GrabError, e:
-                Log.info('keys', str(e))
+                kb = self._bind(window.wid, shortcut)
+            except (GrabError, CyclicKeybindingError), e:
+                Log.info('keys', e)
                 self._shortgen.forbid_base(shortcut[0])
             else:
                 break
         window.shortcut = shortcut
+        window.keybinding = kb
         Log.info(('windows', 'keys'), "window '%s' (id=0x%x) was binded to "
                  "'%s'", window.awn, window.wid, window.shortcut)
 
@@ -1928,6 +2066,13 @@ def main():
         graceful_exit(1)
     Log.capture_stderr()
     Log.capture_stdout()
+
+    try:
+        Xtool.connect(options.display)
+    except Xlib.error.DisplayError, e:
+        Log.exception('X', e)
+        graceful_exit(1)
+
     rules = Rules()
     history = History()
     Config.set_filename(options.filename)
@@ -1945,11 +2090,7 @@ def main():
             graceful_exit(1)
         else:
             Config.use_defaults()
-    try:
-        Xtool.connect(options.display)
-    except Xlib.error.DisplayError, e:
-        Log.exception('X', e)
-        graceful_exit(1)
+
     WindowManager(rules, history)       # everything starts here
     SignalHandler.handle_all(history)
     try:
