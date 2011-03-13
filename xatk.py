@@ -634,13 +634,13 @@ class Config(object):
             else:
                 raise TypeError(type(possible))
 
-    def _parse_modifiers(modifier_str):
-        mods = modifier_str.split('+')
+    def _parse_prefix(prefix):
+        mods = prefix.split('+')
         try:
             fake_kb = Keybinding(mods + ['a'], lambda: None)
         except KeybindingError, e:
             raise OptionValueError("SETTINGS", 'modifiers',
-                                   escape(modifier_str),
+                                   escape(prefix),
                                    message=escape(e))
         return fake_kb.modifiers + fake_kb.keys[:-1]
 
@@ -666,7 +666,7 @@ class Config(object):
 
     _defaults = {
         'keyboard_layout'  : ('QWERTY', ('QWERTY', 'Dvorak')),
-        'modifiers'        : ('Super', _parse_modifiers),
+        'prefix'           : ('Super', _parse_prefix),
         'group_windows_by' : ('AWN', ('AWN', 'Group', 'None')),
         'title_format'     : ('%t   /%s/', _parse_title_format),
         'history_length'   : ('15', _parse_history_length),
@@ -683,16 +683,26 @@ class Config(object):
     """
 
     _config_str = re.compile('^ +', re.M).sub('',
-     u"""[SETTINGS]
+     u"""# All option values are case sensitive if not other noted.
+
+     # List of modifiers:
+     #  - Control (aliases: C, Ctrl)
+     #  - Shift (aliases: S)
+     #  - Mod1 (aliases: A, Alt)
+     #  - Mod4 (aliases: U, Super)
+
+     # List of keys can be obtained with --print-keys option.
+
+     [SETTINGS]
      # Keyboard Layout. This is used to produce keybindings that are easier to
      # press with your keyboard layout.
      # Possible values: Dvorak, QWERTY.
      keyboard_layout = %(keyboard_layout)s
 
-     # Combination of the modifiers separated by '+'. All keybindings use the
-     # same modifiers.
-     # Possible modifiers: Control, Shift, Alt, Super.
-     modifiers = %(modifiers)s
+     # Keybinding prefix consists of a series of modifiers and/or keys
+     # separated by +
+     # Examples: Ctrl+Alt, U+a, A+x+w, F12, XF86_RotateWindows
+     prefix = %(prefix)s
 
      # All windows of the same application are grouped. Windows of the same
      # group are binded to the keys with the same prefix. The following option
@@ -1098,6 +1108,7 @@ class Xtool(object):
         Xtool._root = Xtool._display.screen().root
         Xtool._root.change_attributes(event_mask=Xlib.X.KeyPressMask |
             Xlib.X.KeyReleaseMask | Xlib.X.PropertyChangeMask)
+        Xtool._load_keys()
         Xtool._init_mod_keycodes()
 
     # keyboard related methods
@@ -1140,12 +1151,8 @@ class Xtool(object):
         Xtool._display.sync()
 
     @staticmethod
-    def get_keycode(key, use_keysym=False):
-        # Since keysyms are backward compatible with ASCII we can use ord()
-        # instead of XK.string_to_keysym() to avoid translation of
-        # non-alphabetical symbols to keysym strings previosly
-        keysym = Xlib.XK.string_to_keysym(key) if use_keysym else ord(key)
-        return Xtool._display.keysym_to_keycode(keysym)
+    def get_keycode(key):
+        return Xtool._display.keysym_to_keycode(Xlib.XK.string_to_keysym(key))
 
     @staticmethod
     def get_key(keycode):
@@ -1153,20 +1160,38 @@ class Xtool(object):
             Xtool._display.keycode_to_keysym(keycode, 0))
 
     @staticmethod
+    def get_all_keys():
+        keysyms=[]
+        keys = []
+        keycodes = range(Xtool._display.display.info.min_keycode,
+                         Xtool._display.display.info.max_keycode -
+                         Xtool._display.display.info.min_keycode + 1)
+        for keycode in keycodes:
+            if keycode != Xlib.XK.NoSymbol and not Xtool.is_modifier(keycode):
+                keysyms.append(Xtool._display.keycode_to_keysym(keycode, 0))
+        for s in dir(Xlib.XK):
+            if s.startswith('XK_'):
+                keysym = getattr(Xlib.XK, s)
+                if keysym in keysyms:
+                    keys.append(s[3:])
+        return keys
+
+    @staticmethod
+    def _load_keys():
+        for group in Xlib.keysymdef.__all__:
+            Xlib.XK.load_keysym_group(group)
+
+    @staticmethod
     def _init_mod_keycodes():
-        Xtool._mod_keycodes = set(
-            [
-                Xtool.get_keycode('Shift_L', True),
-                Xtool.get_keycode('Shift_R', True),
-                Xtool.get_keycode('Control_L', True),
-                Xtool.get_keycode('Control_R', True),
-                Xtool.get_keycode('Alt_L', True),
-                Xtool.get_keycode('Alt_R', True),
-                Xtool.get_keycode('Super_L', True),
-                Xtool.get_keycode('Super_R', True)
-            ])
-        if 0 in Xtool._mod_keycodes:
-            Xtool._mod_keycodes.remove(0)
+        Xtool._mod_keycodes = set()
+        modmap = Xtool._display.get_modifier_mapping()
+        for i in (Xlib.X.ControlMapIndex, Xlib.X.ShiftMapIndex,
+                  Xlib.X.LockMapIndex, Xlib.X.Mod1MapIndex,
+                  Xlib.X.Mod2MapIndex, Xlib.X.Mod3MapIndex,
+                  Xlib.X.Mod4MapIndex, Xlib.X.Mod5MapIndex):
+            Xtool._mod_keycodes.update(modmap[i])
+        if Xlib.XK.NoSymbol in Xtool._mod_keycodes:
+            Xtool._mod_keycodes.remove(Xlib.XK.NoSymbol)
 
     @staticmethod
     def is_modifier(keycode):
@@ -1470,7 +1495,7 @@ class Keybinding(object):
         if not keys:
             InvalidKeyError(symbols, None)
         for key in keys:
-            keycode = Xtool.get_keycode(key, True)
+            keycode = Xtool.get_keycode(key)
             if keycode == 0:
                 raise InvalidKeyError(symbols, key)
             else:
@@ -1749,7 +1774,7 @@ class WindowManager(object):
 
         def raise_window(wid=wid, action=action):
             Xtool.raise_window(wid, action)
-        kb = Keybinding(Config.modifiers + list(shortcut),
+        kb = Keybinding(Config.prefix + list(shortcut),
                         raise_window, raise_window)
         self._keybinder.bind(kb)
         return kb
@@ -1952,13 +1977,6 @@ def parse_options():
                          action='version',
                          help="Show program's version number and exit."
     )
-    optparser.add_option('-p', '--print-defaults',
-                         dest='print_defaults',
-                         action='store_true',
-                         default=False,
-                         help='Print a default configuration file on the '
-                         'standard output.'
-    )
     optparser.add_option('-f', '--file',
                          dest='filename',
                          metavar='FILE',
@@ -1972,6 +1990,20 @@ def parse_options():
                          type='string',
                          help='Specify X display name to connect to. If not '
                          'given the environment variable $DISPLAY is used.'
+    )
+    optparser.add_option('-p', '--print-defaults',
+                         dest='print_defaults',
+                         action='store_true',
+                         default=False,
+                         help='Print a default configuration file on the '
+                         'standard output.'
+    )
+    optparser.add_option('-k', '--print-keys',
+                         dest='keys',
+                         action='store_true',
+                         default=False,
+                         help='Print all available keys on the standard '
+                         'output.'
     )
     debgroup = optparse.OptionGroup(optparser, 'Debugging Options')
     debgroup.add_option('-v', '--verbose',
@@ -2064,6 +2096,7 @@ def main():
         Log.error('X', 'can\'t import Xlib, probably python-xlib '
                   'is no installed')
         graceful_exit(1)
+
     Log.capture_stderr()
     Log.capture_stdout()
 
@@ -2072,6 +2105,11 @@ def main():
     except Xlib.error.DisplayError, e:
         Log.exception('X', e)
         graceful_exit(1)
+
+    if options.keys:
+        for key in Xtool.get_all_keys():
+            sys.stdout.stdbackup.write('%s\n' % key)
+        graceful_exit()
 
     rules = Rules()
     history = History()
