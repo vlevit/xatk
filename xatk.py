@@ -1796,17 +1796,16 @@ class KeyListener(object):
             self._initial_state()
 
     def on_key_release(self, ev):
-        in_pressed = ev.detail in self.pressed
-        is_mod = Xtool.is_modifier(ev.detail)
-        if in_pressed or is_mod:
-            if in_pressed:
-                self.pressed.remove(ev.detail)
-            if (self._cycling and not self.pressed and
-                (is_mod or self._modmask != ev.state or self._modmask == 0)):
+        if ev.detail in self.pressed:
+            self.pressed.remove(ev.detail)
+        if Xtool.is_modifier(ev.detail) and self._cycling and not self.pressed:
+            self._ungrab_keyboard()
+            self._initial_state()
+            return
+        if ev.detail != self.keycodes[-1]:
+            if self._cycling and not self.pressed and self._modmask == 0:
                 self._ungrab_keyboard()
                 self._initial_state()
-                return
-        if ev.detail != self.keycodes[-1]:
             return
         kb = self._kblist.find_cyclic(self.keycodes, self._modmask)
         if kb:
