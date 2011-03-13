@@ -683,7 +683,7 @@ class Config(object):
     """
 
     _config_str = re.compile('^ +', re.M).sub('',
-     u"""# All option values are case sensitive if not other noted.
+     u"""# All option values are case sensitive unless other noted.
 
      # List of modifiers:
      #  - Control (aliases: C, Ctrl)
@@ -1692,6 +1692,7 @@ class KeyListener(object):
 
     def _initial_state(self):
         self.keycodes = []
+        self.pressed = set()
         self._modmask = None
         self._kbd_grabbed = False
         self._cycling = False
@@ -1710,6 +1711,7 @@ class KeyListener(object):
     def on_key_press(self, ev):
         if self._modmask is None:
             self._modmask = ev.state
+        self.pressed.add(ev.detail)
         if self._cycling and ev.detail == self.keycodes[-1]:
             return
         self._grab_keyboard()
@@ -1726,17 +1728,23 @@ class KeyListener(object):
             self._initial_state()
 
     def on_key_release(self, ev):
-        if Xtool.is_modifier(ev.detail):
-            if self._cycling:
+        in_pressed = ev.detail in self.pressed
+        is_mod = Xtool.is_modifier(ev.detail)
+        if in_pressed or is_mod:
+            if in_pressed:
+                self.pressed.remove(ev.detail)
+            if (self._cycling and not self.pressed and
+                (is_mod or self._modmask != ev.state or self._modmask == 0)):
                 self._ungrab_keyboard()
                 self._initial_state()
-            return
+                return
         if ev.detail != self.keycodes[-1]:
             return
         kb = self._kblist.find_cyclic(self.keycodes, self._modmask)
         if kb:
             kb.cycle()
-            if self._modmask != ev.state:
+            if (not self.pressed and
+                (self._modmask != ev.state or self._modmask == 0)):
                 self._ungrab_keyboard()
                 self._initial_state()
             else:
