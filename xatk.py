@@ -13,12 +13,12 @@ from ConfigParser import RawConfigParser
 from UserDict import DictMixin
 
 try:
-    import Xlib.X
-    import Xlib.XK
-    import Xlib.Xatom
-    import Xlib.display
+    from Xlib import X
+    from Xlib import XK
+    from Xlib import Xatom
+    from Xlib import display
+    from Xlib import protocol
     import Xlib.error
-    import Xlib.protocol
 except ImportError:
     XLIB_PRESENT = False
 else:
@@ -26,15 +26,18 @@ else:
 
 
 PROG_NAME = 'xatk'
-VERSION  = (0,0,0)
+VERSION = (0, 0, 0)
 CONFIG_PATH = '~/.xatkrc'
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
 ENCODING = locale.getpreferredencoding()
 
+
 class OrderedDict(dict, DictMixin):
-    """OrderedDict implementaion equivalent to Python2.7's OrderedDict by
-    Raymond Hettinger. http://code.activestate.com/recipes/576693/"""
+    """
+    OrderedDict implementaion equivalent to Python2.7's OrderedDict by
+    Raymond Hettinger. http://code.activestate.com/recipes/576693/
+    """
 
     def __init__(self, *args, **kwds):
         if len(args) > 1:
@@ -95,8 +98,8 @@ class OrderedDict(dict, DictMixin):
         inst_dict = vars(self).copy()
         self.__map, self.__end = tmp
         if inst_dict:
-            return (self.__class__, (items,), inst_dict)
-        return self.__class__, (items,)
+            return (self.__class__, (items, ), inst_dict)
+        return self.__class__, (items, )
 
     def keys(self):
         return list(self)
@@ -112,7 +115,7 @@ class OrderedDict(dict, DictMixin):
 
     def __repr__(self):
         if not self:
-            return '%s()' % (self.__class__.__name__,)
+            return '%s()' % (self.__class__.__name__, )
         return '%s(%r)' % (self.__class__.__name__, self.items())
 
     def copy(self):
@@ -133,6 +136,7 @@ class OrderedDict(dict, DictMixin):
     def __ne__(self, other):
         return not self == other
 
+
 def escape(string):
     """
     Escape non-ascii characters in the string (unicode, str or object)
@@ -145,23 +149,23 @@ def escape(string):
     else:
         return repr(unicode(string))[2:-1]
 
+
 class Log(object):
-    """Provide static methods for logging similar to those in the logging
-    module."""
+    """
+    Provide static methods for logging similar to those in the logging
+    module.
+    """
 
     SYSINFO = 5
     STDERR = 45
     STDOUT = 25
 
     CATLEN = 7
-    FORMAT_DICT = OrderedDict(
-        (
-            ('time'     , '%(asctime)-8s,%(msecs)03d'),
-            ('level'    , '%(levelname)-8s'),
-            ('category' , '%(catstr)-' + str(CATLEN) + 's'),
-            ('message'  , '%(message)s')
-        )
-    )
+    FORMAT_DICT = OrderedDict((
+        ('time', '%(asctime)-8s,%(msecs)03d'),
+        ('level', '%(levelname)-8s'),
+        ('category', '%(catstr)-' + str(CATLEN) + 's'),
+        ('message', '%(message)s')))
     MSG_FORMAT_FULL = ' - '.join(FORMAT_DICT.values())
     MSG_FORMAT = '%s - %s' % (FORMAT_DICT['level'], FORMAT_DICT['message'])
     DATE_FORMAT = '%H:%M:%S'
@@ -186,8 +190,10 @@ class Log(object):
     setLevel = handler.setLevel
 
     class SessionRotatingFileHandler(logging.handlers.RotatingFileHandler):
-        """Handler for logging to a set of files, which switches from one file
-        to the next every new session."""
+        """
+        Handler for logging to a set of files, which switches from one file
+        to the next every new session.
+        """
 
         def __init__(self, filename, backupCount=0):
             self.fileExists = os.path.exists(filename)
@@ -206,7 +212,8 @@ class Log(object):
         """File-like object intended to redirect stdout and stderr."""
 
         def __init__(self, std):
-            """Create a stderr-like or stdout-like object.
+            """
+            Create a stderr-like or stdout-like object.
             std value should be either Log.STDERR or Log.STDOUT.
             """
             if std == Log.STDOUT:
@@ -253,18 +260,20 @@ class Log(object):
 
     @staticmethod
     def _update_extra(kwargs, category):
-        """Update `extra` dictionary in `kwargs` dictionary with `catset`
+        """
+        Update `extra` dictionary in `kwargs` dictionary with `catset`
         and `catstr` items obtained from `category`. `category` is expected
-        to be a string or a tuple of strings."""
+        to be a string or a tuple of strings.
+        """
         if isinstance(category, basestring):
             catset = set([category])
         else:
             catset = set(category)
         # form `catstr` string with length not larger than CATLEN
         catlen = (Log.CATLEN - len(catset) + 1) / len(catset)
-        rem    = (Log.CATLEN - len(catset) + 1) % len(catset)
+        rem = (Log.CATLEN - len(catset) + 1) % len(catset)
         cuts = []
-        for i,cat in enumerate(catset):
+        for i, cat in enumerate(catset):
             if len(cat) < catlen:
                 rem += catlen - len(cat)
                 cuts.append(cat[:catlen])
@@ -297,9 +306,12 @@ class Log(object):
 
     @staticmethod
     def configFilter(categories):
-        """Pass only log messages whose `category` attribute belong to the
-        `categories` iterable."""
+        """
+        Pass only log messages whose `category` attribute belong to the
+        `categories` iterable.
+        """
         Log.categories = set(categories)
+
         def filter_(record):
             if record.levelno >= logging.WARNING:
                 return True
@@ -317,8 +329,10 @@ class Log(object):
 
     @staticmethod
     def configFormatter(format):
-        """Change the format string to include the fields in
-        `format` iterable in specified order."""
+        """
+        Change the format string to include the fields in
+        `format` iterable in specified order.
+        """
         try:
             fields = map(Log.FORMAT_DICT.__getitem__, format)
         except KeyError, e:
@@ -400,12 +414,14 @@ class Log(object):
         Log.sysinfo(PROG_NAME, VERSION_NAME)
         Log.sysinfo('encoding', ENCODING)
 
+
 class ConfigError(Exception):
     """Base class for Config exceptions."""
-    pass
+
 
 class ParseError(ConfigError):
     """Wrapper for all exceptions of ConfigParser module."""
+
 
 class UnrecognizedOption(ConfigError):
     """Configuration file contains undefined option name."""
@@ -416,6 +432,7 @@ class UnrecognizedOption(ConfigError):
     def __str__(self):
         return "option '%s' is unrecognized" % self.option
 
+
 class UnrecognizedSection(ConfigError):
     """Configuration file contains undefined section name."""
 
@@ -424,6 +441,7 @@ class UnrecognizedSection(ConfigError):
 
     def __str__(self):
         return "section '%s' is unrecognized" % self.section
+
 
 class MissingOption(ConfigError):
     """Configuration file misses some option."""
@@ -434,6 +452,7 @@ class MissingOption(ConfigError):
     def __str__(self):
         return "option '%s' is missing" % self.option
 
+
 class MissingSection(ConfigError):
     """Configuration file misses some section."""
 
@@ -443,11 +462,12 @@ class MissingSection(ConfigError):
     def __str__(self):
         return "section '%s' is missing" % self.section
 
+
 class OptionValueError(ConfigError):
     """Raised when option has invalid value."""
 
     def __init__(self, section, option, value, values=None, message=None):
-        """Either possible `values` or `message` must be specified"""
+        """Either possible `values` or `message` must be specified."""
         self.section = section
         self.option = option
         self.value = value
@@ -455,17 +475,18 @@ class OptionValueError(ConfigError):
         self.message = message
 
     def __str__(self):
-        msg = "in '%s' section: invalid value of '%s' option: %s" % \
-              (self.section, self.option, self.value)
+        msg = ("in '%s' section: invalid value of '%s' option: %s" %
+              (self.section, self.option, self.value))
         if self.values is not None:
-            return  msg +  ". The value should be one of the following %s" % \
-                   str(self.values)[1:-1]
+            return  ("%s. The value should be one of the following %s" %
+                   (msg, str(self.values)[1:-1]))
         elif self.message is not None:
             if self.message != '':
-                msg += ' (' + self.message + ')'
+                msg += ' (%s)' % self.message
             return msg
         else:
             raise TypeError("Either values or message must be specified")
+
 
 class Config(object):
     """Object that reads, parses, and writes a configuration file."""
@@ -535,8 +556,10 @@ class Config(object):
 
     @staticmethod
     def write(config=None):
-        """Write a default configuration file if `config` is None.
-        Otherwise write a `config` string to the configuration file."""
+        """
+        Write a default configuration file if `config` is None.
+        Otherwise write a `config` string to the configuration file.
+        """
         if config is None:
             config = Config.get_default_config()
         rewrite = os.path.exists(Config._filename)
@@ -553,8 +576,10 @@ class Config(object):
             os.fsync(f.fileno())
             if rewrite:
                 os.rename(tempfilename, Config._filename)
-        except (IOError, OSError): raise
-        else: Log.info('config', 'config written')
+        except (IOError, OSError):
+            raise
+        else:
+            Log.info('config', 'config written')
         finally:
             f.close()
             if rewrite and os.path.exists(tempfilename):
@@ -594,8 +619,10 @@ class Config(object):
 
     @staticmethod
     def find_section(section, config):
-        """Return a tuple containing the start and end positions of `section`
-        in `config` string. If not found `MissingSection` is raised."""
+        """
+        Return a tuple containing the start and end positions of `section`
+        in `config` string. If not found `MissingSection` is raised.
+        """
         secre = re.compile(Config.SECRE % section,
                            re.DOTALL | re.MULTILINE | re.VERBOSE | re.UNICODE)
         m = secre.search(config)
@@ -608,7 +635,7 @@ class Config(object):
     def write_section(secname, secbody):
         config = Config.read()
         start, end = Config.find_section(secname, config)
-        header = '[' + secname + ']\n'
+        header = '[%s]\n' % secname
         newconfig = config[:start] + header + secbody + config[end:]
         Config.write(newconfig)
 
@@ -645,7 +672,7 @@ class Config(object):
         return fake_kb.modifiers + fake_kb.keys[:-1]
 
     def _parse_title_format(title_format):
-        """Check title_format contains not more than one %t and %s"""
+        """Check title_format contains not more than one %t and %s."""
         if title_format.count('%t') > 1 or title_format.count('%s') > 1:
             raise OptionValueError("SETTINGS", "title_format",
                 escape(title_format),
@@ -665,15 +692,15 @@ class Config(object):
         return hist_len
 
     _defaults = {
-        'keyboard_layout'  : ('QWERTY', ('QWERTY', 'Dvorak')),
-        'prefix'           : ('Super', _parse_prefix),
-        'group_windows_by' : ('AWN', ('AWN', 'Group', 'None')),
-        'title_format'     : ('%t   /%s/', _parse_title_format),
-        'history_length'   : ('15', _parse_history_length),
-        'desktop_action'   : ('SwitchDesktop', ('SwitchDesktop', 'MoveWindow',
-                                              'None')),
-        }
-    """Dictionary with keys containing options, and values containing
+        'keyboard_layout': ('QWERTY', ('QWERTY', 'Dvorak')),
+        'prefix': ('Super', _parse_prefix),
+        'group_windows_by': ('AWN', ('AWN', 'Group', 'None')),
+        'title_format': ('%t   /%s/', _parse_title_format),
+        'history_length': ('15', _parse_history_length),
+        'desktop_action': ('SwitchDesktop', ('SwitchDesktop', 'MoveWindow',
+                                              'None'))}
+    """
+    Dictionary with keys containing options, and values containing
     tuples of the default value and a list of possible valid values.
 
     Format:
@@ -772,8 +799,8 @@ class Config(object):
      # transorm classes icecat, iceweasel, and icedove to awns cat, weasel, and
      # dove respectively
      # class.ice(cat|weasel|dove) = \\1
-     """
-    )
+     """)
+
 
 class History(OrderedDict):
     """
@@ -806,7 +833,7 @@ class History(OrderedDict):
         items = []
         for awn in self:
             if awn != '':
-                items.insert(0, awn + ' = ' + self[awn])
+                items.insert(0, '%s = %s' % (awn, self[awn]))
         body = '\n'.join(items)
         try:
             Config.write_section(u'HISTORY', body)
@@ -820,6 +847,7 @@ class History(OrderedDict):
         """Leave `Config.history_length` last entries in the history."""
         for i in range(len(self) - Config.history_length):
             self.popitem(last=False)
+
 
 class Rules(list):
     """Extend list. Contain tuples (type, regex, awn)."""
@@ -857,8 +885,10 @@ class Rules(list):
         Log.info('config', 'parsed rules: %s', str(rules))
 
     def get_awn(self, winclass, winname):
-        """Transofrm winclass or winname to awn according to the rules.
-        Return winclass if no rule matches."""
+        """
+        Transofrm winclass or winname to awn according to the rules.
+        Return winclass if no rule matches.
+        """
         for ruleno, rule in enumerate(self):
             type_, regex, awn = rule
             name = winclass if type_ == Window.CLASS else winname
@@ -875,9 +905,12 @@ class Rules(list):
                     return awn
         return winclass
 
+
 class KeyboardLayout(object):
-    """Object holding information about the order of keys of different keboard
-    layouts"""
+    """
+    Object holding information about the order of keys of different keboard
+    layouts.
+    """
 
     dvorak = '\',.pyfgcrlaoeuidhtns;qjkxbmwvz'
     qwerty = 'qwertyuiopasdfghjkl;zxcvbnm,./'
@@ -900,9 +933,12 @@ class KeyboardLayout(object):
     def isalpha(self, char):
         return char in self and char.isalpha()
 
+
 class ShortcutGenerator(object):
-    """Class which generates shortcuts for specified windows taking into
-    account windows' and window list's information."""
+    """
+    Class which generates shortcuts for specified windows taking into
+    account windows' and window list's information.
+    """
 
     def __init__(self):
         self.layout = KeyboardLayout(Config.keyboard_layout)
@@ -913,9 +949,11 @@ class ShortcutGenerator(object):
         return 1 if self.layout.indexes[base] % 10 < 5 else -1
 
     def _next_suffix(self, shortcuts):
-        """Return a new suffix which can be any symbol from
+        """
+        Return a new suffix which can be any symbol from
         `KeyboardLayout.keys` for a shortcut with the base key
-        `shortcuts[0][0]`."""
+        `shortcuts[0][0]`.
+        """
         base = shortcuts[0][0]
         dir_ = self._get_direction(base)
         suffixes = [s[1] for s in shortcuts if len(s) == 2]
@@ -924,7 +962,7 @@ class ShortcutGenerator(object):
         suffix_indexes = [self.layout.indexes[s] for s in suffixes]
         # get last suffix index
         first_index = self.layout.indexes[suffixes[0]]
-        left_indexes  = [i for i in suffix_indexes if i < first_index]
+        left_indexes = [i for i in suffix_indexes if i < first_index]
         right_indexes = [i for i in suffix_indexes if i > first_index]
         if dir_ == 1:                   # move right
             if left_indexes:            # crossed over the rightmost symbol
@@ -960,8 +998,10 @@ class ShortcutGenerator(object):
     _forbidden_bases = set()
 
     def forbid_base(self, base):
-        """Tell `ShortcutGenerator` not to use the `base` key for new
-        shortcuts"""
+        """
+        Tell `ShortcutGenerator` not to use the `base` key for new
+        shortcuts.
+        """
         self._forbidden_bases.add(base)
 
     def new_shortcut(self, window, window_list, history):
@@ -992,17 +1032,18 @@ class ShortcutGenerator(object):
             else:
                 return prefix + suffix
 
+
 class WindowList(list):
     """Extend list. `WindowList` elements must be of type `Window`."""
 
     def get_window(self, wid):
-        """Return a `Window` object with the window id `wid`"""
+        """Return a `Window` object with the window id `wid`."""
         for win in self:
             if win.wid == wid:
                 return win
 
     def get_windows(self, wids):
-        """Return a list of `Window` objects with the window ids in `wids`"""
+        """Return a list of `Window` objects with the window ids in `wids`."""
         windows = list()
         for win in self:
             if win.wid in wids:
@@ -1016,8 +1057,10 @@ class WindowList(list):
         return 0
 
     def get_group_windows(self, gid):
-        """Return a list of `Window` objects with the window group id `gid`
-        and sorted by `wid` attribute."""
+        """
+        Return a list of `Window` objects with the window group id `gid`
+        and sorted by `wid` attribute.
+        """
         return sorted([w for w in self if w.gid == gid], key=lambda w: w.wid)
 
     def get_group_shortcuts(self, gid):
@@ -1038,6 +1081,7 @@ class WindowList(list):
         self.last_unique_group_id += 1
         return self.last_unique_group_id
 
+
 class Window(object):
     """An object holding attributes related to a window.
 
@@ -1056,10 +1100,12 @@ class Window(object):
     CLASS = 0
     NAME = 1
 
-    def _get_awn(self):
+    @property
+    def awn(self):
         return self._awn
 
-    def _set_awn(self, awn):
+    @awn.setter
+    def awn(self, awn):
         if isinstance(awn, basestring):
             self._awn = awn.lower()
         elif awn is None:
@@ -1067,12 +1113,12 @@ class Window(object):
         else:
             raise TypeError('awn must be a string object or None')
 
-    awn = property(_get_awn, _set_awn)
-
-    def _get_shortcut(self):
+    @property
+    def shortcut(self):
         return self._shortcut
 
-    def _set_shortcut(self, shortcut):
+    @shortcut.setter
+    def shortcut(self, shortcut):
         if isinstance(shortcut, basestring):
             self._shortcut = shortcut.lower()
         elif shortcut is None:
@@ -1080,15 +1126,14 @@ class Window(object):
         else:
             raise TypeError('Shortcut must be a string object or None')
 
-    shortcut = property(_get_shortcut, _set_shortcut)
-
     def __str__(self):
         d = self.__dict__
         str_or_hex = lambda k, v: hex(v) if k in ('wid', 'gid') else unicode(v)
         return ', '.join(['%s: %s' % (k, str_or_hex(k, d[k])) for k in d])
 
+
 class BadWindow(Exception):
-    """Wrapper for Xlib's BadWindow exception"""
+    """Wrapper for Xlib's BadWindow exception."""
 
     def __init__(self, wid):
         self.wid = wid
@@ -1096,54 +1141,54 @@ class BadWindow(Exception):
     def __str__(self):
         return "Bad window with id=%s" % hex(self.wid)
 
+
 class ConnectionClosedError(Exception):
     """Wrapper for Xlib's ConnectionClosedError exception."""
 
+
 class Xtool(object):
-    """Wrapper for Xlib related methods"""
+    """Wrapper for Xlib related methods."""
 
     @staticmethod
     def connect(displaystr=None):
-        Xtool._display = Xlib.display.Display(displaystr)
+        Xtool._display = display.Display(displaystr)
         Xtool._root = Xtool._display.screen().root
-        Xtool._root.change_attributes(event_mask=Xlib.X.KeyPressMask |
-            Xlib.X.KeyReleaseMask | Xlib.X.PropertyChangeMask)
+        Xtool._root.change_attributes(event_mask=X.KeyPressMask |
+            X.KeyReleaseMask | X.PropertyChangeMask)
         Xtool._load_keys()
         Xtool._init_mod_keycodes()
 
-    # keyboard related methods
-
+    # Keyboard related methods
+    #
     @staticmethod
     def grab_key(keycode, mask, onerror=None):
         Xtool._root.grab_key(keycode, mask,
-            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
-        Xtool._root.grab_key(keycode, mask | Xlib.X.Mod2Mask,
-            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
-        Xtool._root.grab_key(keycode, mask | Xlib.X.LockMask,
-            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
-        Xtool._root.grab_key(keycode, mask | Xlib.X.Mod2Mask | Xlib.X.LockMask,
-            1, Xlib.X.GrabModeAsync, Xlib.X.GrabModeAsync, onerror=onerror)
+            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
+        Xtool._root.grab_key(keycode, mask | X.Mod2Mask,
+            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
+        Xtool._root.grab_key(keycode, mask | X.LockMask,
+            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
+        Xtool._root.grab_key(keycode, mask | X.Mod2Mask | X.LockMask,
+            1, X.GrabModeAsync, X.GrabModeAsync, onerror=onerror)
 
     @staticmethod
     def ungrab_key(keycode, mask, onerror=None):
         Xtool._root.ungrab_key(keycode, mask, onerror=onerror)
-        Xtool._root.ungrab_key(keycode, mask | Xlib.X.Mod2Mask,
+        Xtool._root.ungrab_key(keycode, mask | X.Mod2Mask, onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | X.LockMask, onerror=onerror)
+        Xtool._root.ungrab_key(keycode, mask | X.Mod2Mask | X.LockMask,
                                onerror=onerror)
-        Xtool._root.ungrab_key(keycode, mask | Xlib.X.LockMask,
-                               onerror=onerror)
-        Xtool._root.ungrab_key(keycode, mask | Xlib.X.Mod2Mask |
-                               Xlib.X.LockMask, onerror=onerror)
 
     @staticmethod
     def grab_keyboard():
-        Xtool._root.grab_keyboard(1, Xlib.X.GrabModeAsync,
-                                  Xlib.X.GrabModeAsync, Xlib.X.CurrentTime)
+        Xtool._root.grab_keyboard(1, X.GrabModeAsync, X.GrabModeAsync,
+                                  X.CurrentTime)
 
     @staticmethod
     def ungrab_keyboard():
-        Xtool._display.ungrab_keyboard(Xlib.X.CurrentTime)
-        # after the keyboard is ungrabbed no release event
-        # will come, so forget all pressed keys
+        Xtool._display.ungrab_keyboard(X.CurrentTime)
+        # After the keyboard is ungrabbed no release event
+        # will come, so forget all pressed keys.
         Xtool._pressed_keys.clear()
 
     @staticmethod
@@ -1152,11 +1197,11 @@ class Xtool(object):
 
     @staticmethod
     def get_keycode(key):
-        return Xtool._display.keysym_to_keycode(Xlib.XK.string_to_keysym(key))
+        return Xtool._display.keysym_to_keycode(XK.string_to_keysym(key))
 
     @staticmethod
     def get_key(keycode):
-        return Xlib.XK.keysym_to_string(
+        return XK.keysym_to_string(
             Xtool._display.keycode_to_keysym(keycode, 0))
 
     @staticmethod
@@ -1167,11 +1212,11 @@ class Xtool(object):
                          Xtool._display.display.info.max_keycode -
                          Xtool._display.display.info.min_keycode + 1)
         for keycode in keycodes:
-            if keycode != Xlib.XK.NoSymbol and not Xtool.is_modifier(keycode):
+            if keycode != XK.NoSymbol and not Xtool.is_modifier(keycode):
                 keysyms.append(Xtool._display.keycode_to_keysym(keycode, 0))
-        for s in dir(Xlib.XK):
+        for s in dir(XK):
             if s.startswith('XK_'):
-                keysym = getattr(Xlib.XK, s)
+                keysym = getattr(XK, s)
                 if keysym in keysyms:
                     keys.append(s[3:])
         return keys
@@ -1179,19 +1224,18 @@ class Xtool(object):
     @staticmethod
     def _load_keys():
         for group in Xlib.keysymdef.__all__:
-            Xlib.XK.load_keysym_group(group)
+            XK.load_keysym_group(group)
 
     @staticmethod
     def _init_mod_keycodes():
         Xtool._mod_keycodes = set()
         modmap = Xtool._display.get_modifier_mapping()
-        for i in (Xlib.X.ControlMapIndex, Xlib.X.ShiftMapIndex,
-                  Xlib.X.LockMapIndex, Xlib.X.Mod1MapIndex,
-                  Xlib.X.Mod2MapIndex, Xlib.X.Mod3MapIndex,
-                  Xlib.X.Mod4MapIndex, Xlib.X.Mod5MapIndex):
+        for i in (X.ControlMapIndex, X.ShiftMapIndex, X.LockMapIndex,
+                  X.Mod1MapIndex, X.Mod2MapIndex, X.Mod3MapIndex,
+                  X.Mod4MapIndex, X.Mod5MapIndex):
             Xtool._mod_keycodes.update(modmap[i])
-        if Xlib.XK.NoSymbol in Xtool._mod_keycodes:
-            Xtool._mod_keycodes.remove(Xlib.XK.NoSymbol)
+        if XK.NoSymbol in Xtool._mod_keycodes:
+            Xtool._mod_keycodes.remove(XK.NoSymbol)
 
     @staticmethod
     def is_modifier(keycode):
@@ -1202,8 +1246,8 @@ class Xtool(object):
         bitmap = Xtool._display.query_keymap()
         return bitmap[keycode / 8] & (1 << (keycode % 8))
 
-    # window reltaed methods
-
+    # Window reltaed methods
+    #
     @staticmethod
     def _atom(name):
         return Xtool._display.intern_atom(name)
@@ -1211,7 +1255,7 @@ class Xtool(object):
     @staticmethod
     def get_window_list():
         return Xtool._root.get_full_property(
-            Xtool._atom("_NET_CLIENT_LIST"), Xlib.Xatom.WINDOW).value
+            Xtool._atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
 
     @staticmethod
     def _get_window(wid):
@@ -1262,20 +1306,20 @@ class Xtool(object):
             Xtool._atom('UTF8_STRING'),
             8,
             name.encode('utf-8'),
-            mode=Xlib.X.PropModeReplace)
+            mode=X.PropModeReplace)
 
     @staticmethod
     def _send_client_message(wid, msg, data):
         window = Xtool._get_window(wid) if wid is not None else Xtool._root
-        event = Xlib.protocol.event.ClientMessage(
+        event = protocol.event.ClientMessage(
             client_type=Xtool._atom(msg),
             window=window,
             data=(32, data))
         Xtool._display.send_event(
             Xtool._root,
             event,
-            event_mask=Xlib.X.SubstructureRedirectMask |
-                       Xlib.X.SubstructureNotifyMask)
+            event_mask=X.SubstructureRedirectMask |
+                       X.SubstructureNotifyMask)
 
     @staticmethod
     def set_window_name(wid, name):
@@ -1294,7 +1338,7 @@ class Xtool(object):
             window = Xtool._get_window(wid)
             message = '_NET_WM_DESKTOP'
         reply = window.get_full_property(Xtool._atom(message),
-                                         Xlib.Xatom.CARDINAL)
+                                         Xatom.CARDINAL)
         if reply is not None:
             return reply.value[0]
 
@@ -1321,43 +1365,51 @@ class Xtool(object):
 
     @staticmethod
     def listen_window_name(wid):
-        """Tell Xtool to watch the window name changes. Otherwise
-        `window_name_listener.on_window_name_changed()` will not work."""
+        """
+        Tell Xtool to watch the window name changes. Otherwise
+        `window_name_listener.on_window_name_changed()` will not work.
+        """
         Xtool._get_window(wid).change_attributes(
-            event_mask=Xlib.X.PropertyChangeMask)
+            event_mask=X.PropertyChangeMask)
 
     @staticmethod
     def register_key_listener(key_listener):
-        """Register `key_listener` which must have `on_key_press` and
-        `on_key_release` methods."""
+        """
+        Register `key_listener` which must have `on_key_press` and
+        `on_key_release` methods.
+        """
         Xtool._key_listener = key_listener
 
     @staticmethod
     def register_window_list_listener(window_list_listener):
-        """Register `window_list_listener` which must have
-        `on_window_list_changed` method."""
+        """
+        Register `window_list_listener` which must have
+        `on_window_list_changed` method.
+        """
         Xtool._window_list_listener = window_list_listener
 
     @staticmethod
     def register_window_name_listener(window_name_listener):
-        """Register `window_name_listener` which must have
-        `on_window_name_changed` method."""
+        """
+        Register `window_name_listener` which must have
+        `on_window_name_changed` method.
+        """
         Xtool._window_name_listener = window_name_listener
 
     @staticmethod
     def _window_list_changed(event):
-        return event.type == Xlib.X.PropertyNotify and \
-            event.atom == Xtool._atom("_NET_CLIENT_LIST")
+        return (event.type == X.PropertyNotify and
+            event.atom == Xtool._atom("_NET_CLIENT_LIST"))
 
     @staticmethod
     def _window_name_changed(event):
-        return event.type == Xlib.X.PropertyNotify and \
+        return (event.type == X.PropertyNotify and
             (event.atom == Xtool._atom("_NET_WM_NAME") or
-            event.atom == Xtool._atom("WM_NAME"))
+            event.atom == Xtool._atom("WM_NAME")))
 
     @staticmethod
     def _check_listeners():
-        """Check if all listeners are registered before entering event_loop"""
+        """Check if all listeners are registered before entering event_loop."""
         if not hasattr(Xtool, '_key_listener'):
             raise AttributeError('no key_listener')
         elif not (hasattr(Xtool._key_listener, 'on_key_press') and
@@ -1365,7 +1417,8 @@ class Xtool(object):
             raise AttributeError('bad key_listener')
         if not hasattr(Xtool, '_window_list_listener'):
             raise AttributeError('no window_list_listener')
-        elif not hasattr(Xtool._window_list_listener, 'on_window_list_changed'):
+        elif not hasattr(Xtool._window_list_listener,
+                         'on_window_list_changed'):
             raise AttributeError('bad window_list_listener')
 
     _pressed_keys = set()
@@ -1388,7 +1441,7 @@ class Xtool(object):
             try:
                 Xtool._pressed_keys.remove(keycode)
             except KeyError:
-                # some key had been pressed before the keyboard was grabbed
+                # Some key had been pressed before the keyboard was grabbed
                 # and now it is released while the keyboard is still
                 # grabbed. Actually this is not a fake event, though ignore it.
                 return True
@@ -1397,8 +1450,10 @@ class Xtool(object):
 
     @staticmethod
     def event_loop():
-        """Event loop. Before entering the loop all the listeners must be
-        registered wih `Xtool.register_xxx_listener()`."""
+        """
+        Event loop. Before entering the loop all the listeners must be
+        registered wih `Xtool.register_xxx_listener()`.
+        """
         Xtool._check_listeners()
         while True:
             try:
@@ -1408,19 +1463,21 @@ class Xtool(object):
                 elif Xtool._window_name_changed(event):
                     Xtool._window_name_listener.on_window_name_changed(
                         event.window.id)
-                elif event.type == Xlib.X.KeyPress:
+                elif event.type == X.KeyPress:
                     Xtool._last_key_event_time = event.time
                     if not Xtool._is_key_press_fake(event.detail):
                         Xtool._key_listener.on_key_press(event)
-                elif event.type == Xlib.X.KeyRelease:
+                elif event.type == X.KeyRelease:
                     Xtool._last_key_event_time = event.time
                     if not Xtool._is_key_release_fake(event.detail):
                         Xtool._key_listener.on_key_release(event)
             except Xlib.error.ConnectionClosedError, e:
                 raise ConnectionClosedError(e)
 
+
 class KeybindingError(Exception):
     """Base class for keybinding errors."""
+
 
 class CyclicKeybindingError(KeybindingError):
     """Raised when keybinding is cyclic and two last keys are the same."""
@@ -1430,6 +1487,7 @@ class CyclicKeybindingError(KeybindingError):
 
     def __str__(self):
         return "cyclic keybinding '%s' is invalid" % self.keybinding
+
 
 class InvalidKeyError(KeybindingError):
     """
@@ -1448,6 +1506,7 @@ class InvalidKeyError(KeybindingError):
         else:
             return "keybinding '%s': no key" % escape(self.keybinding)
 
+
 class KeybindingCollisionError(KeybindingError):
     """New keybinding collides with the existing one."""
 
@@ -1457,6 +1516,7 @@ class KeybindingCollisionError(KeybindingError):
 
     def __str__(self):
         return "keybinding '%s' collides with '%s'" % (self.kb1, self.kb2)
+
 
 class Keybinding(object):
 
@@ -1504,13 +1564,13 @@ class Keybinding(object):
 
     def _get_modmask(self, modifier):
         if modifier in ('Shift', 'S'):
-            return Xlib.X.ShiftMask
+            return X.ShiftMask
         elif modifier in ('Control', 'Ctrl', 'C'):
-            return Xlib.X.ControlMask
+            return X.ControlMask
         elif modifier in ('Mod1', 'Alt', 'A'):
-            return Xlib.X.Mod1Mask
+            return X.Mod1Mask
         elif modifier in ('Mod4', 'Super', 'U'):
-            return Xlib.X.Mod4Mask
+            return X.Mod4Mask
         else:
             return None
 
@@ -1562,6 +1622,7 @@ class Keybinding(object):
                 if longkb.keycodes[minlen - 1] == longkb.keycodes[minlen]:
                     return True
         return False
+
 
 class KeybindingList(list):
 
@@ -1625,8 +1686,10 @@ class KeybindingList(list):
         keybinding._marker = self._marker
         list.append(self, keybinding)
 
+
 class KeyBinderError(Exception):
     """Base class for KeyBinder exceptions."""
+
 
 class BadShortcut(KeyBinderError):
     """Raised when one of the shortcut's symbol has invalid keycode."""
@@ -1635,8 +1698,9 @@ class BadShortcut(KeyBinderError):
         self.shortcut = shortcut
 
     def __str__(self):
-        return "can't bind shotcut '%s'. Symbol '%s' has bad keycode." % \
-                (self.shortcut, self.shortcut[0])
+        return ("can't bind shotcut '%s'. Symbol '%s' has bad keycode." %
+                (self.shortcut, self.shortcut[0]))
+
 
 class GrabError(KeyBinderError):
     """Raised when the key is already grabbed."""
@@ -1645,8 +1709,9 @@ class GrabError(KeyBinderError):
         self.keybinding = keybinding
 
     def __str__(self):
-        return ("can't grab key %s. It is already " +
-        "grabbed by another program.") % (self.keybinding)
+        return ("can't grab key %s. It is already "
+                "grabbed by another program.") % (self.keybinding)
+
 
 class KeyBinder(object):
 
@@ -1682,9 +1747,12 @@ class KeyBinder(object):
             Xtool.ungrab_key(key, modmask)
         self._kblist.clear()
 
+
 class KeyListener(object):
-    """`KeyListener` recieves the key events, determines the pressed
-    keybindings, and calls the appropriate functions."""
+    """
+    `KeyListener` recieves the key events, determines the pressed
+    keybindings, and calls the appropriate functions.
+    """
 
     def __init__(self, kblist):
         self._kblist = kblist
@@ -1757,9 +1825,12 @@ class KeyListener(object):
                 self._ungrab_keyboard()
                 self._initial_state()
 
+
 class WindowManager(object):
-    """`WindowManager` tracks changes of the window list, their names, assigns
-    the shortcuts to the new windows."""
+    """
+    `WindowManager` tracks changes of the window list, their names, assigns
+    the shortcuts to the new windows.
+    """
 
     def __init__(self, rules, history):
         self._rules = rules
@@ -1812,10 +1883,13 @@ class WindowManager(object):
                         'while it is not in the window list', wid)
 
     def _on_windows_close(self, wids):
-        """Delete the window from the window list and unbind it.
+        """
+        Delete the window from the window list and unbind it.
 
         If the group leader (the first window of the group) was closed, rebind
-        all the other windows of the group."""
+        all the other windows of the group.
+
+        """
         wins_closed = self._windows.get_windows(wids)
         for win_closed in wins_closed:
             self._keybinder.unbind(win_closed.keybinding)
@@ -1847,9 +1921,11 @@ class WindowManager(object):
                     del win.prev_shortcut
 
     def _on_window_create(self, wid):
-        """Create window, initialise its attributes, add to the window list,
+        """
+        Create window, initialise its attributes, add to the window list,
         possibly change its name, and register the window for watching its
-        name."""
+        name.
+        """
         window = Window()
         window.wid = wid
         window.gid = 0
@@ -1876,9 +1952,11 @@ class WindowManager(object):
             Xtool.listen_window_name(window.wid)
 
     def _add_shortcut(self, window):
-        """Generate a new unused shortcut for `window` and add the shortcut to
+        """
+        Generate a new unused shortcut for `window` and add the shortcut to
         the `window`. Set the shortcut to None if all the possible keys are
-        grabbed."""
+        grabbed.
+        """
         while True:
             shortcut = self._shortgen.new_shortcut(window, self._windows,
                                                    self._history)
@@ -1922,9 +2000,12 @@ class WindowManager(object):
         new_name = new_name.replace('%s', window.shortcut)
         Xtool.set_window_name(window.wid, new_name)
 
+
 class SignalHandler:
-    """Object holding static methods that implement the program behaviour
-    when recieving a signal."""
+    """
+    Object holding static methods that implement the program behaviour
+    when recieving a signal.
+    """
 
     history = None
 
@@ -1951,6 +2032,7 @@ class SignalHandler:
         if SignalHandler.history is not None:
             signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
 
+
 def graceful_exit(exit_code=0, history=None):
     """Write history if given, shutdown logging, and exit."""
     if history:
@@ -1961,9 +2043,13 @@ def graceful_exit(exit_code=0, history=None):
     logging.shutdown()
     sys.exit(exit_code)
 
+
 def parse_options():
-    """Parse command line options and return an object holding option
-    values."""
+    """
+    Parse command line options and return an object holding option
+    values.
+    """
+
     def splitstr(option, opt_str, value, parser, choice):
         splits = value.split(',')
         for s in splits:
@@ -1975,81 +2061,71 @@ def parse_options():
     optparser = optparse.OptionParser(usage=usage,
                                       version=VERSION_NAME,
                                       add_help_option=False,
-                                      conflict_handler='resolve'
-    )
+                                      conflict_handler='resolve')
     optparser.add_option('-h', '--help',
                          action='help',
-                         help="Show this help message and exit."
-    )
+                         help="Show this help message and exit.")
     optparser.add_option('-V', '--version',
                          action='version',
-                         help="Show program's version number and exit."
-    )
+                         help="Show program's version number and exit.")
     optparser.add_option('-f', '--file',
                          dest='filename',
                          metavar='FILE',
                          default=os.path.expanduser(CONFIG_PATH),
                          help='Specify a configuration file. The default is '
-                         '%s.' % CONFIG_PATH
-    )
+                         '%s.' % CONFIG_PATH)
     optparser.add_option('-d', '--display',
                          dest='display',
                          metavar='DISPLAY',
                          type='string',
                          help='Specify X display name to connect to. If not '
-                         'given the environment variable $DISPLAY is used.'
-    )
+                         'given the environment variable $DISPLAY is used.')
     optparser.add_option('-p', '--print-defaults',
                          dest='print_defaults',
                          action='store_true',
                          default=False,
                          help='Print a default configuration file on the '
-                         'standard output.'
-    )
+                         'standard output.')
     optparser.add_option('-k', '--print-keys',
                          dest='keys',
                          action='store_true',
                          default=False,
                          help='Print all available keys on the standard '
-                         'output.'
-    )
+                         'output.')
     debgroup = optparse.OptionGroup(optparser, 'Debugging Options')
     debgroup.add_option('-v', '--verbose',
                         dest='verbosity',
                         action='count',
                         default=0,
                         help='Provide verbose output. When the option is '
-                        'given twice the verbosity increases.'
-    )
+                        'given twice the verbosity increases.')
     debgroup.add_option('-t', '--format',
                         dest='fields',
                         type='string',
                         action='callback',
                         callback=splitstr,
-                        callback_args=(Log.FORMAT_DICT.keys(),),
+                        callback_args=(Log.FORMAT_DICT.keys(), ),
                         metavar='field1[,field2[,...]]',
                         help='Specify which fields to print and their order. '
-                        'Possible fields: %s.' % ', '.join(Log.FORMAT_DICT.keys())
-    )
+                        'Possible fields: %s.' %
+                        ', '.join(Log.FORMAT_DICT.keys()))
     debgroup.add_option('-r', '--filter',
                         dest='categories',
                         type='string',
                         action='callback',
                         callback=splitstr,
-                        callback_args=(FIELDS,),
+                        callback_args=(FIELDS, ),
                         metavar='category1[,category2[,...]]',
                         help='Print only those messages that belong to given '
                         'categories (this doesn\'t apply to errors and '
                         'warnings which are always printed). Possible '
-                        'categories: %s.' % ', '.join(FIELDS)
-    )
+                        'categories: %s.' % ', '.join(FIELDS))
     debgroup.add_option('-l', '--log-file',
                         dest='logfile',
                         metavar='FILE',
                         help='Specify a file where to write a log. Options '
                         '-v/--verbose, -t/--format and -r/--filter don\'t '
-                        'affect logging to the file.'
-    )
+                        'affect logging to the file.')
     debgroup.add_option('-b', '--backup-count',
                         dest='backup_count',
                         type='int',
@@ -2060,8 +2136,8 @@ def parse_options():
                         'Default value is %%default. If NUMBER is not 0 '
                         'log files will be rotated on every %s\'s start. '
                         'The name of the oldest file will have the largest '
-                        'number at the end (e.g. %s.log.5).' % ((PROG_NAME,)*2)
-    )
+                        'number at the end (e.g. %s.log.5).' %
+                        ((PROG_NAME, )*2))
     optparser.add_option_group(debgroup)
     (options, args) = optparser.parse_args()
     if args:
@@ -2081,6 +2157,7 @@ def parse_options():
         optparser.error('option -b/--backup-count: value should be 0 or '
                         'larger: %d' % options.backup_count)
     return options
+
 
 def main():
     options = parse_options()
@@ -2144,6 +2221,7 @@ def main():
     except ConnectionClosedError, e:
         Log.exception('X', e)
         graceful_exit(1, history)
+
 
 if __name__ == "__main__":
     main()
