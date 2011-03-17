@@ -1772,14 +1772,18 @@ class KeyListener(object):
     def _grab_keyboard(self):
         if not self._kbd_grabbed:
             Xtool.grab_keyboard()
+            Log.debug('keys', 'keyboard grabbed')
             self._kbd_grabbed = True
 
     def _ungrab_keyboard(self):
         if self._kbd_grabbed:
             Xtool.ungrab_keyboard()
+            Log.debug('keys', 'keyboard ungrabbed')
             self._kbd_grabbed = False
 
     def on_key_press(self, ev):
+        Log.debug('keys', 'key \'%s\' pressed with modifier state %d and '
+                  'keycode %d', Xtool.get_key(ev.detail), ev.state, ev.detail)
         if self._modmask is None:
             self._modmask = ev.state
         self.pressed.add(ev.detail)
@@ -1794,16 +1798,20 @@ class KeyListener(object):
         elif kb == 1:
             pass
         else:
+            Log.info('keys', 'keybinding cauguht: %s' % kb)
             kb.call()
             self._ungrab_keyboard()
             self._initial_state()
 
     def on_key_release(self, ev):
+        Log.debug('keys', 'key \'%s\' released with modifier state %d and '
+                  'keycode %d', Xtool.get_key(ev.detail), ev.state, ev.detail)
         if ev.detail in self.pressed:
             self.pressed.remove(ev.detail)
-        if Xtool.is_modifier(ev.detail) and self._cycling and not self.pressed:
-            self._ungrab_keyboard()
-            self._initial_state()
+        if Xtool.is_modifier(ev.detail):
+            if self._cycling and not self.pressed:
+                self._ungrab_keyboard()
+                self._initial_state()
             return
         if ev.detail != self.keycodes[-1]:
             if self._cycling and not self.pressed and self._modmask == 0:
@@ -1812,6 +1820,7 @@ class KeyListener(object):
             return
         kb = self._kblist.find_cyclic(self.keycodes, self._modmask)
         if kb:
+            Log.info('keys', 'cyclic keybinding cauguht: %s' % kb)
             kb.cycle()
             if (not self.pressed and
                 (self._modmask != ev.state or self._modmask == 0)):
@@ -1823,6 +1832,7 @@ class KeyListener(object):
         else:
             kb = self._kblist.find_full(self.keycodes, self._modmask)
             if kb:
+                Log.info('keys', 'keybinding cauguht: %s' % kb)
                 kb.call()
                 self._ungrab_keyboard()
                 self._initial_state()
