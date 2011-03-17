@@ -1889,35 +1889,37 @@ class WindowManager(object):
         all the other windows of the group.
 
         """
-        wins_closed = self._windows.get_windows(wids)
-        for win_closed in wins_closed:
-            self._keybinder.unbind(win_closed.keybinding)
+        closed_windows = self._windows.get_windows(wids)
+        for closed in closed_windows:
+            self._keybinder.unbind(closed.keybinding)
             Log.info(('keys', 'windows'), "window '%s' (id=0x%x) was " +
-                     "unbinded from '%s'", win_closed.name, win_closed.wid,
-                     win_closed.shortcut)
-            del self._windows[self._windows.index(win_closed)]
-        groups = set([w.gid for w in wins_closed if len(w.shortcut) == 1])
+                     "unbinded from '%s'", closed.name, closed.wid,
+                     closed.shortcut)
+            self._windows.remove(closed)
+        groups = set([w.gid for w in closed_windows if len(w.shortcut) == 1])
         for group in groups:
-            wins = self._windows.get_group_windows(group)
-            if len(wins) > 0:
-                base_key = wins[0].shortcut[0]
-                # rebind all the windows of the group
-                for win in wins:
-                    self._keybinder.unbind(win.keybinding)
-                    win.prev_shortcut, win.shortcut = win.shortcut, None
-                for i, win in enumerate(wins):
-                    if i == 0: # base key for the group should remain the same
-                        win.shortcut = base_key
-                        self._bind(win.wid, win.shortcut)
-                        Log.info(('keys', 'windows'), "window '%s' (id=0x%x)" +
-                                 " was binded to '%s'", win.awn, win.wid,
-                                 win.shortcut)
-                    else:
-                        self._add_shortcut(win)
-                    Log.info('keys', 'Rebinding: %s -> %s',
-                             win.prev_shortcut, win.shortcut)
-                    self._update_window_name(win, win.prev_shortcut)
-                    del win.prev_shortcut
+            group_windows = self._windows.get_group_windows(group)
+            if not group_windows:
+                continue
+            # rebind all the group_windows of the group
+            leader = group_windows[0]
+            leader_shortcut = leader.shortcut[0]
+            for w in group_windows:
+                self._keybinder.unbind(w.keybinding)
+                w.prev_shortcut = w.shortcut
+                w.shortcut = None
+            leader.shortcut = leader_shortcut
+            leader.keybinding = self._bind(leader.wid, leader.shortcut)
+            Log.info('keys', 'Rebinding: %s -> %s',
+                     leader.prev_shortcut, leader.shortcut)
+            self._update_window_name(leader, leader.prev_shortcut)
+            del leader.prev_shortcut
+            for i, w in enumerate(group_windows[1:]):
+                self._add_shortcut(w)
+                Log.info('keys', 'Rebinding: %s -> %s',
+                         w.prev_shortcut, w.shortcut)
+                self._update_window_name(w, w.prev_shortcut)
+                del w.prev_shortcut
 
     def _on_window_create(self, wid):
         """
