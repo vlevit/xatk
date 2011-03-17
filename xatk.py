@@ -1197,7 +1197,10 @@ class Xtool(object):
 
     @staticmethod
     def get_keycode(key):
-        return Xtool._display.keysym_to_keycode(XK.string_to_keysym(key))
+        keysym = XK.string_to_keysym(key)
+        if keysym == XK.NoSymbol and len(key) == 1 and ord(key) < 128:
+            keysym = ord(key)
+        return Xtool._display.keysym_to_keycode(keysym)
 
     @staticmethod
     def get_key(keycode):
