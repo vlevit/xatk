@@ -178,7 +178,7 @@ class Log(object):
     handler = logging.StreamHandler()
     logger.addHandler(handler)
     formatter = logging.Formatter(MSG_FORMAT, DATE_FORMAT)
-    # don't print exception information to stderr
+    # don't print exception traceback to stderr
     formatter.formatException = lambda exc_info: ''
     handler.setFormatter(formatter)
 
@@ -305,6 +305,19 @@ class Log(object):
         sys.stderr = sys.stderr.stdbackup
 
     @staticmethod
+    def configHandler(stream):
+        level = Log.handler.level
+        Log.handler.close()
+        Log.logger.removeHandler(Log.handler)
+        Log.handler = logging.StreamHandler(stream)
+        Log.logger.addHandler(Log.handler)
+        Log.formatter = logging.Formatter(Log.MSG_FORMAT, Log.DATE_FORMAT)
+        # don't print exception traceback to stderr
+        Log.formatter.formatException = lambda exc_info: ''
+        Log.handler.setFormatter(Log.formatter)
+        Log.handler.setLevel(level)
+
+    @staticmethod
     def configFilter(categories):
         """
         Pass only log messages whose `category` attribute belong to the
@@ -338,7 +351,7 @@ class Log(object):
         except KeyError, e:
             raise ValueError("invalid format string: %s" % e.args[0])
         Log.formatter = logging.Formatter(' - '.join(fields))
-        # don't print exception information to stderr
+        # don't print exception traceback to stderr
         Log.formatter.formatException = lambda exc_info: ''
         Log.handler.setFormatter(Log.formatter)
 
@@ -346,7 +359,7 @@ class Log(object):
     def resetFormatter():
         """Reset to the default formatter."""
         Log.formatter = logging.Formatter(Log.MSG_FORMAT, Log.DATE_FORMAT)
-        # don't print exception information to stderr
+        # don't print exception traceback to stderr
         Log.formatter.formatException = lambda exc_info: ''
         Log.handler.setFormatter(Log.formatter)
 
@@ -2094,6 +2107,11 @@ def parse_options():
                          type='string',
                          help='Specify X display name to connect to. If not '
                          'given the environment variable $DISPLAY is used.')
+    optparser.add_option('-n', '--no-daemon',
+                         dest='daemon',
+                         action='store_false',
+                         default=True,
+                         help='Don\'t start as daemon.')
     optparser.add_option('-p', '--print-defaults',
                          dest='print_defaults',
                          action='store_true',
@@ -2173,6 +2191,50 @@ def parse_options():
     return options
 
 
+def daemonize():
+    """
+    Do the UNIX double-fork magic, see Stevens' "Advanced
+    Programming in the UNIX Environment" for details (ISBN 0201563177)
+    http://www.erlenstar.demon.co.uk/unix/faq_2.html#SEC16
+
+    Based on Sander Marechal's Daemon class
+    http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
+    """
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # exit first parent
+            sys.exit(0)
+    except OSError, e:
+        Log.critical(PROG_NAME, 'fork #1 failed: %d (%s)', e.errno, e.strerror)
+        graceful_exit(1)
+
+    # decouple from parent environment
+    os.chdir('/')
+    os.setsid()
+    os.umask(0)
+
+    # do second fork
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # exit from second parent
+            sys.exit(0)
+    except OSError, e:
+        Log.critical(PROG_NAME, 'fork #2 failed: %d (%s)', e.errno, e.strerror)
+        graceful_exit(1)
+
+    # redirect standard file descriptors
+    sys.stdout.flush()
+    sys.stderr.flush()
+    si = file(os.devnull, 'r')
+    so = file(os.devnull, 'a+')
+    se = file(os.devnull, 'a+', 0)
+    os.dup2(si.fileno(), sys.stdin.fileno())
+    os.dup2(so.fileno(), sys.stdout.fileno())
+    os.dup2(se.fileno(), sys.stderr.fileno())
+
+
 def main():
     options = parse_options()
     if options.print_defaults:
@@ -2191,6 +2253,7 @@ def main():
     if options.logfile is not None:
         Log.configRotatingFileHandler(options.logfile, options.backup_count)
         Log.log_system_information()
+
     if not XLIB_PRESENT:
         Log.error('X', 'can\'t import Xlib, probably python-xlib '
                   'is no installed')
@@ -2227,6 +2290,12 @@ def main():
             graceful_exit(1)
         else:
             Config.use_defaults()
+
+    if options.daemon:
+        Log.release_stderr()
+        Log.release_stdout()
+        daemonize()
+        Log.configHandler(os.devnull)
 
     WindowManager(rules, history)       # everything starts here
     SignalHandler.handle_all(history)
