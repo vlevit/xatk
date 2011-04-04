@@ -389,7 +389,7 @@ class Log(object):
             fields = map(Log.FORMAT_DICT.__getitem__, format)
         except KeyError, e:
             raise ValueError("invalid format string: %s" % e.args[0])
-        Log.formatter = logging.Formatter(' - '.join(fields))
+        Log.formatter = logging.Formatter(' - '.join(fields), Log.DATE_FORMAT)
         # don't print exception traceback to stderr
         Log.formatter.formatException = lambda exc_info: ''
         Log.handler.setFormatter(Log.formatter)
