@@ -753,7 +753,7 @@ class Config(object):
         'prefix': ('Super', _parse_prefix),
         'group_windows_by': ('AWN', ('AWN', 'Group', 'None')),
         'title_format': ('%t   /%s/', _parse_title_format),
-        'history_length': ('15', _parse_history_length),
+        'history_length': ('20', _parse_history_length),
         'desktop_action': ('SwitchDesktop', ('SwitchDesktop', 'MoveWindow',
                                               'None'))}
     """
