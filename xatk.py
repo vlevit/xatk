@@ -1002,9 +1002,8 @@ class ShortcutGenerator(object):
 
     def _next_suffix(self, shortcuts):
         """
-        Return a new suffix which can be any symbol from
-        `KeyboardLayout.keys` for a shortcut with the base key
-        `shortcuts[0][0]`.
+        Return a new free suffix. shortcuts must have the same base key and
+        must be sorted by shortcut_sort_key.
         """
         base = shortcuts[0][0]
         dir_ = self._get_direction(base)
@@ -1084,6 +1083,15 @@ class ShortcutGenerator(object):
             else:
                 return prefix + suffix
 
+    def shortcut_sort_key(self, shortcut):
+        key = [self.layout.indexes[shortcut[0]]]
+        if len(shortcut) > 1:
+            key2 = self.layout.indexes[shortcut[1]]
+            if self._get_direction(shortcut[0]) == -1: # reverse order
+                key2 = -key2
+            key.append(key2)
+        return key
+
 
 class WindowList(list):
     """Extend list. `WindowList` elements must be of type `Window`."""
@@ -1111,13 +1119,15 @@ class WindowList(list):
     def get_group_windows(self, gid):
         """
         Return a list of `Window` objects with the window group id `gid`
-        and sorted by `wid` attribute.
+        sorted by shortcuts.
         """
-        return sorted([w for w in self if w.gid == gid], key=lambda w: w.wid)
+        return sorted([w for w in self if w.gid == gid],
+                      key=lambda w: w.shortcut_sort_key)
 
     def get_group_shortcuts(self, gid):
-        """Return a list of shortcuts with the window group id `gid`."""
-        return [w.shortcut for w in self if w.gid == gid and w.shortcut]
+        """Return a sorted list of shortcuts with the window group id `gid`."""
+        return [w.shortcut for w in sorted([w for w in self if w.gid == gid
+               and w.shortcut], key=lambda w: w.shortcut_sort_key)]
 
     def get_all_bases(self):
         """Return a set of all used base keys."""
@@ -1146,6 +1156,7 @@ class Window(object):
     - `shortcut`: is represented by a string of length one or two (e.g. 'a' or
       'bn', where 'a' is the base key, 'b' is the prefix, and 'n' is the
       suffix)
+    - `shortcut_sort_key`: variable by which windows can be sorted
     - `keybinding`: keybinding object
     """
 
@@ -1974,12 +1985,14 @@ class WindowManager(object):
                 w.prev_shortcut = w.shortcut
                 w.shortcut = None
             leader.shortcut = leader_shortcut
+            leader.shortcut_sort_key = self._shortgen.shortcut_sort_key(
+                leader.shortcut)
             leader.keybinding = self._bind(leader.wid, leader.shortcut)
             Log.info('keys', 'Rebinding: %s -> %s',
                      leader.prev_shortcut, leader.shortcut)
             self._update_window_name(leader, leader.prev_shortcut)
             del leader.prev_shortcut
-            for i, w in enumerate(group_windows[1:]):
+            for w in group_windows[1:]:
                 self._add_shortcut(w)
                 Log.info('keys', 'Rebinding: %s -> %s',
                          w.prev_shortcut, w.shortcut)
@@ -2009,8 +2022,10 @@ class WindowManager(object):
         if not window.gid:
             window.gid = self._windows.get_unique_group_id()
         self._add_shortcut(window)
-        Log.info('windows', 'new window attributes: %s' % window)
         if window.shortcut:
+            window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
+                window.shortcut)
+            Log.info('windows', 'new window attributes: %s' % window)
             if window.awn not in self._windows.get_all_awns():
                 self._history.update_item(window.awn, window.shortcut[0])
             self._windows.append(window)
@@ -2038,6 +2053,8 @@ class WindowManager(object):
             else:
                 break
         window.shortcut = shortcut
+        window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
+            window.shortcut)
         window.keybinding = kb
         Log.info(('windows', 'keys'), "window '%s' (id=0x%x) was binded to "
                  "'%s'", window.awn, window.wid, window.shortcut)
