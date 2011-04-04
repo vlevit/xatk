@@ -461,9 +461,9 @@ class Log(object):
     def log_system_information():
         Log.sysinfo('uname', '%s %s' % (os.uname()[0], os.uname()[2]))
         Log.sysinfo('python', sys.version[0:5])
-        xlib_version = Xlib.__version_string__ if XLIB_PRESENT else 'no'
-        Log.sysinfo('xlib', xlib_version)
+        Log.sysinfo('xlib', Xlib.__version_string__)
         Log.sysinfo(PROG_NAME, VERSION_NAME)
+        Log.sysinfo('wm', Xtool.get_wm_name() or 'n/a')
         Log.sysinfo('encoding', ENCODING)
 
 
@@ -1389,6 +1389,19 @@ class Xtool(object):
                        X.SubstructureNotifyMask)
 
     @staticmethod
+    def get_wm_name():
+        """Get window manager name."""
+        reply = Xtool._root.get_full_property(
+            Xtool._atom('_NET_SUPPORTING_WM_CHECK'), Xatom.WINDOW)
+        wid = reply.value[0]
+        try:
+            wm_name = Xtool.get_window_name(wid)
+        except BadWindow, e:
+            Log.exception('windows', e)
+            wm_name = u''
+        return wm_name
+
+    @staticmethod
     def set_window_name(wid, name):
         Xtool._set_property(wid, '_NET_WM_NAME', name)
 
@@ -2311,7 +2324,6 @@ def main():
         Log.configFilter(options.categories)
     if options.logfile is not None:
         Log.configRotatingFileHandler(options.logfile, options.backup_count)
-        Log.log_system_information()
 
     if not XLIB_PRESENT:
         Log.error('X', 'can\'t import Xlib, probably python-xlib '
@@ -2326,6 +2338,8 @@ def main():
     except Xlib.error.DisplayError, e:
         Log.exception('X', e)
         graceful_exit(1)
+
+    Log.log_system_information()
 
     if options.keys:
         for key in Xtool.get_all_keys():
