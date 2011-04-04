@@ -1338,7 +1338,8 @@ class Xtool(object):
         if name:
             return name.value.decode('utf-8')
         else:
-            return win.get_wm_name().decode()
+            name = win.get_wm_name()
+            return name.decode() if name is not None else u''
 
     @staticmethod
     def get_window_class(wid, instance=False):
