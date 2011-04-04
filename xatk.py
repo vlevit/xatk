@@ -1799,6 +1799,8 @@ class KeyBinder(object):
         Xtool.grab_key(kb.keycodes[0], kb.modmask, onerror=ec)
         Xtool.sync()
         if ec.get_error():
+            self._kblist.pop()
+            Xtool.ungrab_key(kb.keycodes[0], kb.modmask)
             raise GrabError(escape(keybinding))
 
     def unbind(self, keybinding):
