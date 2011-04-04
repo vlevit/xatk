@@ -357,6 +357,11 @@ class Log(object):
         Log.handler.setLevel(level)
 
     @staticmethod
+    def removeHandler():
+        Log.handler.close()
+        Log.logger.removeHandler(Log.handler)
+
+    @staticmethod
     def configFilter(categories):
         """
         Pass only log messages whose `category` attribute belong to the
@@ -2368,7 +2373,10 @@ def main():
         Log.release_stderr()
         Log.release_stdout()
         daemonize()
-        Log.configHandler(os.devnull)
+        if options.logfile is not None:
+            Log.capture_stderr()
+            Log.capture_stdout()
+            Log.removeHandler()
 
     WindowManager(rules, history)       # everything starts here
     SignalHandler.handle_all(history)
