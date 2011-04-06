@@ -1,0 +1,20 @@
+xatk is a keyboard-driven window switcher for X.
+
+Looking for the documentaion? Look at the doc directory.
+
+Project site
+http://code.google.com/p/xatk/
+
+Mailing list
+http://groups.google.com/group/xatk-discuss
+xatk-discuss@googlegroups.com
+
+Runtime requirements
+ * python 2.x (>= 2.6)
+ * python-xlib (tested only with 0.14 version)
+
+License
+xatk is licensed under GPL v3.
+
+Author
+Slava Levit

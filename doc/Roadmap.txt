@@ -1,0 +1,11 @@
+Roadmap 
+
+It is planned to implement next features for 0.1 version of xatk:
+
+  • add KEYBINDINGS section to .xatkrc
+      □ add keybinding to exit the program
+      □ add keybinding to reload .xatkrc
+      □ add keybinding to write history to .xatkrc
+  • prevent changing titles very often (if the application updates its title
+    too often, or it watches title changes and modifies it (as we do))
+

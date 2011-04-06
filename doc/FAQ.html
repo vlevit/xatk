@@ -1,0 +1,39 @@
+
+ 
+
+
+
+ 
+
+
+
+<html>
+ <head>
+ <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+ <title>FAQ</title>
+ </head>
+ <body>
+ 
+
+
+
+
+<div>
+<table>
+ <tr>
+ 
+ 
+ <td style="vertical-align:top; padding-left:5px">
+ 
+ <div id="wikicontent">
+ <div class="vt" id="wikimaincol">
+ <h1><a name="Frequently_Asked_Questions"></a>Frequently Asked Questions<a href="#Frequently_Asked_Questions" class="section_anchor"></a></h1><h2><a name="Customizing"></a>Customizing<a href="#Customizing" class="section_anchor"></a></h2><h3><a name="How_to_tell_xatk_not_to_modify_window_titles?"></a>How to tell xatk not to modify window titles?<a href="#How_to_tell_xatk_not_to_modify_window_titles?" class="section_anchor"></a></h3><p>Set title_format to None in ~/.xatkrc. </p><h3><a name="How_to_disable_multi-key_shortcuts?"></a>How to disable multi-key shortcuts?<a href="#How_to_disable_multi-key_shortcuts?" class="section_anchor"></a></h3><p>Change group_windows_by option value to None. </p><h3><a name="How_to_change_shortcut_for_&lt;your_application&gt;?"></a>How to change shortcut for &lt;your application&gt;?<a href="#How_to_change_shortcut_for_&lt;your_application&gt;?" class="section_anchor"></a></h3><p>Make sure xatk is not running (you can stop it with &quot;pkill -f xatk&quot;). Open ~/.xatkrc and find your application of interest in the HISTORY section. Change the existing shortcut to the one you like. It should be a single Latin alphabetical character. If your application is not present there, you should know its <i>awn</i> attribute (window class by default) to make a new entry. Then run xatk again. Note, that this doesn&#x27;t guarantee your application will have the shortcut you specified, HISTORY is more like recommendation (the key you specified may be grabbed by another program or already used by xatk for another window). </p><h3><a name="Shortcuts_for_my_windows_change_all_the_time."></a>Shortcuts for my windows change all the time.<a href="#Shortcuts_for_my_windows_change_all_the_time." class="section_anchor"></a></h3><p>Try to increase the value of history_length option. </p><h3><a name="How_to_make_&lt;application_1&gt;_and_&lt;application_2&gt;_belo"></a>How to make &lt;application 1&gt; and &lt;application 2&gt; belong to the one group?<a href="#How_to_make_&lt;application_1&gt;_and_&lt;application_2&gt;_belo" class="section_anchor"></a></h3><p>Windows belong to the one group if they have identical awn attributes. You can specify identical awns for these applications in the RULES section. </p><h3><a name="I_want_shortcuts_to_be_in_certain_order_(e.g._q,w,e,r...)_withou"></a>I want shortcuts to be in certain order (e.g. q,w,e,r...) without considering applications they belong to.<a href="#I_want_shortcuts_to_be_in_certain_order_(e.g._q,w,e,r...)_withou" class="section_anchor"></a></h3><p>You may want to set history_length to 0, group_windows_by to None and define the rule like this: </p><pre class="prettyprint">title..*=qwertyuiopasdfghjklzxcvbnm</pre><h2><a name="Debugging"></a>Debugging<a href="#Debugging" class="section_anchor"></a></h2><h3><a name="xatk_doesn&#x27;t_start"></a>xatk doesn&#x27;t start<a href="#xatk_doesn&#x27;t_start" class="section_anchor"></a></h3><p>Run xatk in the terminal and look at the output. Probably it is something wrong with your configuration. </p><h3><a name="xatk_crashes"></a>xatk crashes<a href="#xatk_crashes" class="section_anchor"></a></h3><p>You can pass --no-daemon option to xatk to see errors in the terminal. It is also useful to specify --verbose to get debugging messages printed to the standard output. Higher level of verbosity can be achieved with -vv. </p><p>More preferable option is logging to a file, as it contains more debugging information. For this purpose, specify --log-file option. Pass --backup-count=N to xatk to save last N+1 logs. It is advised to create <a href="http://code.google.com/p/xatk/issues/entry" rel="nofollow">a new issue</a> with a log attached. Make sure that the log file doesn&#x27;t contain any sensitive or personal data before uploading it. </p><h2><a name="Miscellaneous"></a>Miscellaneous<a href="#Miscellaneous" class="section_anchor"></a></h2><h3><a name="How_can_I_obtain_a_window_class_property?"></a>How can I obtain a window class property?<a href="#How_can_I_obtain_a_window_class_property?" class="section_anchor"></a></h3><p>Run </p><pre class="prettyprint">xprop | grep WM_CLASS</pre><p>and select a window. The second string after &#x27;=&#x27; is what you need. </p>
+ </div>
+ </div>
+ </td><tr>
+</table>
+ </div>
+
+
+ </body>
+</html>

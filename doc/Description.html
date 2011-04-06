@@ -1,0 +1,37 @@
+
+
+
+ 
+
+
+
+<html>
+ <head>
+ <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+ <title>Description</title>
+ </head>
+ <body>
+ 
+
+
+
+
+<div>
+<table>
+ <tr>
+ 
+ 
+ <td style="vertical-align:top; padding-left:5px">
+ 
+ <div id="wikicontent">
+ <div class="vt" id="wikimaincol">
+ <p><strong>xatk</strong> dynamically binds windows to keyboard shortcuts, so it is possible to reach any window with one or a few keystrokes. </p><h2><a name="Installation"></a>Installation<a href="#Installation" class="section_anchor"></a></h2><p><i>xatk</i> is one python file program which doesn&#x27;t need installation. Just put <i>xatk</i> somewhere in your $PATH. To run <i>xatk</i> you should have <a href="http://www.python.org" rel="nofollow">python &gt;= 2.6</a> and <a href="http://python-xlib.sourceforge.net/" rel="nofollow">python-xlib</a> installed. </p><h2><a name="Running"></a>Running<a href="#Running" class="section_anchor"></a></h2><p>Before running <i>xatk</i> you may want to change some configuration options. To do so, run </p><pre class="prettyprint">xatk --print-defaults &gt; ~/.xatkrc</pre><p>Then open ~/.xatkrc and make changes. The most important option to remember/redefine is <i>prefix</i> which is set to <i>Super</i> by default. This means that all keyboard shortcuts will start with <i>Super</i> modifier. You can define any modifier you like, or even combination of modifiers and keys. Most other options are for fine-tuning and it is not necessary to learn them all just to benefit from using <i>xatk</i>. Look at the comment blocks in the default configuration file if you want to learn more. </p><p>When you get ready with configuration, you can start <i>xatk</i> daemon with the next command: </p><pre class="prettyprint">xatk</pre><p>If no error occurred, you may notice that window titles now contain shortcuts which they are bound to. To activate a window you should press a keybinding <i>prefix</i>+<i>shortcut</i>. </p><p>If you want to exit the program, send SIGTERM to it: </p><pre class="prettyprint">pkill -f xatk</pre><h2><a name="The_idea_behind_xatk"></a>The idea behind xatk<a href="#The_idea_behind_xatk" class="section_anchor"></a></h2><p>Most of window switchers are interactive. They provide attributes associated with windows (e.g. titles, icons, previews) which we scan first and than choose one of them. That works well enough when we deal with a set of applications for the first time. However, we regularly use the same applications. So, in most cases our wish to switch a window can be expressed like &quot;Show me &lt;my favourite &lt;text editor&gt;|&lt;instant messenger&gt;|&lt;web browser&gt;&gt;&quot;. One possible solution to switch between windows efficiently is to bind regularly used windows to keyboard shortcuts with such tools as <a href="http://tomas.styblo.name/wmctrl/" rel="nofollow">wmctrl</a> and <a href="http://www.nongnu.org/xbindkeys/xbindkeys.html" rel="nofollow">xbindkeys</a>. However, this approach has a few drawbacks: </p><ul><li>switching to the particular window of the program which has more than one window is hard if not impossible;  </li><li>only limited number of windows are covered; </li><li>manual composition of keyboard shortcuts which becomes even more boring when you stop using one program and start using another one; </li><li>it is not easy to keep in mind all defined keyboard shortcuts. </li></ul><p><i>xatk</i> was created to resolve these deficiencies.  </p><h2><a name="How_xatk_works"></a>How xatk works<a href="#How_xatk_works" class="section_anchor"></a></h2><p>When a new window appears, <i>xatk</i> determines its special name called abstract window name (<i>awn</i>). This name is used for 2 purposes: <ul><li>windows which have the same <i>awn</i> fall into one group; </li><li>characters of <i>awn</i> are preferable keys to compose a shortcut from for the corresponding window. </li></ul></p><p>By default, <i>window class</i> property is assigned to <i>awn</i>. However, user may define own rules based on <i>window class</i> and <i>window name</i> (title) to form <i>awns</i>. </p><p>When <i>awn</i> of the window is determined, <i>xatk</i> looks it up in the history, holding <i>awn</i> — <i>shortcut</i> pairs. If the history contains the appropriate entry, <i>xatk</i> will bind the window to the previously used shortcut. Otherwise the shortcut is generated from the <i>awn</i>. This technique results in next <i>xatk&#x27;s</i> features: </p><ul><li>new shortcuts are usually not hard to remember as they are derived from the application names (more precisely, from the <i>awns</i>);   </li><li>regularly used windows have the same shortcuts all the time; </li><li>shortcuts of applications that are not used anymore for some time get freed. </li></ul><p>Windows which belong to the same group have the same <i>base key</i> which is the first key of the shortcut. </p><h2><a name="Keybindings_(keyboard_shortcuts)"></a>Keybindings (keyboard shortcuts)<a href="#Keybindings_(keyboard_shortcuts)" class="section_anchor"></a></h2><p><i>xatk</i> tries to compose keybindings which would be easy to press and predict. If a window is alone in the group, then to activate it you have to press a one-key <i>shortcut</i> while holding a <i>prefix</i> key. If the group contains more than one window, than a keybinding of the first window will remain the same (but window activation will be triggered by key release instead of key press). Other windows of the group will have keybindings with <i>prefix</i>+<i>base key</i>+<i>suffix key</i> scheme. Such notation means that you should press <i>base key</i> while holding <i>prefix</i> key and then press <i>suffix key</i> while holding <i>base key</i>. <i>xatk</i> takes into consideration the keyboard layout when it produces <i>suffix keys</i>. So, a distance between <i>base key</i> and <i>suffix key</i> is one, two, and three keys for the second, third, and fourth window of the group respectively. Another way to reach deeper windows of the group is cycling through them by pressing a <i>base key</i> repeatedly. </p><p>Finally, if you don&#x27;t like pressing key sequences, you can configure <i>xatk</i> not to group windows. </p><h2><a name="Project_status"></a>Project status<a href="#Project_status" class="section_anchor"></a></h2><p><i>xatk</i> should be usable now, but it is not yet ready for release. </p>
+ </div>
+ </div>
+ </td><tr>
+</table>
+ </div>
+
+
+ </body>
+</html>

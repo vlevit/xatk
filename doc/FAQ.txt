@@ -1,0 +1,70 @@
+Frequently Asked Questions 
+
+Customizing 
+
+How to tell xatk not to modify window titles? 
+
+Set title_format to None in ~/.xatkrc.
+
+How to disable multi-key shortcuts? 
+
+Change group_windows_by option value to None.
+
+How to change shortcut for <your application>? 
+
+Make sure xatk is not running (you can stop it with "pkill -f xatk"). Open ~
+/.xatkrc and find your application of interest in the HISTORY section. Change
+the existing shortcut to the one you like. It should be a single Latin
+alphabetical character. If your application is not present there, you should
+know its awn attribute (window class by default) to make a new entry. Then run
+xatk again. Note, that this doesn't guarantee your application will have the
+shortcut you specified, HISTORY is more like recommendation (the key you
+specified may be grabbed by another program or already used by xatk for another
+window).
+
+Shortcuts for my windows change all the time. 
+
+Try to increase the value of history_length option.
+
+How to make <application 1> and <application 2> belong to the one group? 
+
+Windows belong to the one group if they have identical awn attributes. You can
+specify identical awns for these applications in the RULES section.
+
+I want shortcuts to be in certain order (e.g. q,w,e,r...) without considering
+applications they belong to. 
+
+You may want to set history_length to 0, group_windows_by to None and define
+the rule like this:
+
+title..*=qwertyuiopasdfghjklzxcvbnm
+
+Debugging 
+
+xatk doesn't start 
+
+Run xatk in the terminal and look at the output. Probably it is something wrong
+with your configuration.
+
+xatk crashes 
+
+You can pass --no-daemon option to xatk to see errors in the terminal. It is
+also useful to specify --verbose to get debugging messages printed to the
+standard output. Higher level of verbosity can be achieved with -vv.
+
+More preferable option is logging to a file, as it contains more debugging
+information. For this purpose, specify --log-file option. Pass --backup-count=N
+to xatk to save last N+1 logs. It is advised to create a new issue with a log
+attached. Make sure that the log file doesn't contain any sensitive or personal
+data before uploading it.
+
+Miscellaneous 
+
+How can I obtain a window class property? 
+
+Run
+
+xprop | grep WM_CLASS
+
+and select a window. The second string after '=' is what you need.
+
