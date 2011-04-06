@@ -65,7 +65,7 @@ else:
 
 
 PROG_NAME = 'xatk'
-VERSION = (0, 0, 0)
+VERSION = (0, 0, 1)
 CONFIG_PATH = '~/.xatkrc'
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
