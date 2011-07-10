@@ -1341,7 +1341,7 @@ class Xtool(object):
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if name:
-            return name.value.decode('utf-8')
+            return name.value.decode('utf-8', 'ignore')
         else:
             name = win.get_wm_name()
             return name.decode() if name is not None else u''
