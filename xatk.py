@@ -40,6 +40,7 @@
 #   THE SOFTWARE.
 
 import ConfigParser
+import codecs
 import locale
 import logging.handlers
 import optparse
@@ -187,6 +188,14 @@ def escape(string):
         return repr(string)[1:-1]
     else:
         return repr(unicode(string))[2:-1]
+
+
+def unicode_error_ignore_and_log(exception):
+    """
+    UnicodeError handler which ignores malformed data and does logging.
+    """
+    Log.exception('encoding', exception)
+    return codecs.ignore_errors(exception)
 
 
 class Log(object):
@@ -1341,10 +1350,13 @@ class Xtool(object):
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
         if name:
-            return name.value.decode('utf-8', 'ignore')
+            return name.value.decode('utf-8', 'ignore_log')
         else:
             name = win.get_wm_name()
-            return name.decode() if name is not None else u''
+            if name is not None:
+                return name.decode('latin_1', 'ignore_log')
+            else:
+                return u''
 
     @staticmethod
     def get_window_class(wid, instance=False):
@@ -1354,9 +1366,9 @@ class Xtool(object):
             raise BadWindow(wid)
         if cls:
             if instance == False:
-                return cls[1].decode()
+                return cls[1].decode('latin_1', 'ignore_log')
             else:
-                return cls[0].decode()
+                return cls[0].decode('latin_1', 'ignore_log')
         else:
             return ''
 
@@ -2334,6 +2346,8 @@ def main():
         Log.error('X', 'can\'t import Xlib, probably python-xlib '
                   'is no installed')
         graceful_exit(1)
+
+    codecs.register_error('ignore_log', unicode_error_ignore_and_log)
 
     Log.capture_stderr()
     Log.capture_stdout()
