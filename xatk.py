@@ -1333,9 +1333,36 @@ class Xtool(object):
         return Xtool._display.intern_atom(name)
 
     @staticmethod
+    def _get_full_property(win, prop, kind, sizehint=32):
+        """
+        Get full property `prop` of type `kind` for window object `win`.
+
+        python-xlib's get_full_property is unsafe: if property is changed
+        between get_proprty calls, the function returns inconsistent value
+        and may cause BadValue Error because of incorrect long_offset value.
+        Workaround here is that property is (re)read entirely if its size is
+        larger than it has been expected.
+        """
+        long_length = sizehint
+        bytes_after = 1
+        while bytes_after:
+            res = win.get_property(prop, kind, 0, long_length)
+            if res:
+                bytes_after = res.bytes_after
+                long_length += bytes_after / 4 + 1
+            else:
+                return None
+        return res
+
+    @staticmethod
     def get_window_list():
-        return Xtool._root.get_full_property(
-            Xtool._atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
+        prop = Xtool._get_full_property(Xtool._root,
+                                        Xtool._atom("_NET_CLIENT_LIST"),
+                                        Xatom.WINDOW)
+        if prop:
+            return prop.value
+        else:
+            return []
 
     @staticmethod
     def _get_window(wid):
@@ -1344,33 +1371,40 @@ class Xtool(object):
     @staticmethod
     def get_window_name(wid):
         win = Xtool._get_window(wid)
+        prop = None
         try:
-            name = win.get_full_property(Xtool._atom("_NET_WM_NAME"),
-                                         Xtool._atom('UTF8_STRING'))
+            prop = Xtool._get_full_property(win, Xtool._atom('_NET_WM_NAME'),
+                                            Xtool._atom('UTF8_STRING'))
+            if prop:
+                return prop.value.decode('utf-8', 'ignore_log')
+            else:
+                prop = Xtool._get_full_property(win, Xatom.WM_NAME,
+                                                Xatom.STRING)
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
-        if name:
-            return name.value.decode('utf-8', 'ignore_log')
+        if prop is not None:
+            return prop.value.decode('latin_1', 'ignore_log')
         else:
-            name = win.get_wm_name()
-            if name is not None:
-                return name.decode('latin_1', 'ignore_log')
-            else:
-                return u''
+            return u''
 
     @staticmethod
     def get_window_class(wid, instance=False):
+        win = Xtool._get_window(wid)
+        prop = None
         try:
-            cls = Xtool._get_window(wid).get_wm_class()
+            prop = Xtool._get_full_property(win, Xatom.WM_CLASS, Xatom.STRING)
         except Xlib.error.BadWindow:
             raise BadWindow(wid)
-        if cls:
-            if instance == False:
-                return cls[1].decode('latin_1', 'ignore_log')
+        if prop:
+            parts = prop.value.split('\0')
+            if len(parts) < 2:
+                return u''
+            if instance:
+                return parts[0].decode('latin_1', 'ignore_log')
             else:
-                return cls[0].decode('latin_1', 'ignore_log')
+                return parts[1].decode('latin_1', 'ignore_log')
         else:
-            return ''
+            return u''
 
     @staticmethod
     def get_window_group_id(wid):
@@ -1408,7 +1442,7 @@ class Xtool(object):
     @staticmethod
     def get_wm_name():
         """Get window manager name."""
-        reply = Xtool._root.get_full_property(
+        reply = Xtool._get_full_property(Xtool._root,
             Xtool._atom('_NET_SUPPORTING_WM_CHECK'), Xatom.WINDOW)
         wid = reply.value[0]
         try:
@@ -1434,7 +1468,7 @@ class Xtool(object):
         else:
             window = Xtool._get_window(wid)
             message = '_NET_WM_DESKTOP'
-        reply = window.get_full_property(Xtool._atom(message),
+        reply = Xtool._get_full_property(window, Xtool._atom(message),
                                          Xatom.CARDINAL)
         if reply is not None:
             return reply.value[0]
