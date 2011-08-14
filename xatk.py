@@ -1098,13 +1098,19 @@ class ShortcutGenerator(object):
                 return prefix + suffix
 
     def shortcut_sort_key(self, shortcut):
-        key = [self.layout.indexes[shortcut[0]]]
+        b = shortcut[0]
+        keys = []
+        bi = self.layout.indexes[b]
+        keys.append(bi)
         if len(shortcut) > 1:
-            key2 = self.layout.indexes[shortcut[1]]
-            if self._get_direction(shortcut[0]) == -1: # reverse order
-                key2 = -key2
-            key.append(key2)
-        return key
+            s = shortcut[1]
+            si = self.layout.indexes[s]
+            dir_ = self._get_direction(b)
+            res = dir_ * (si - bi)
+            if dir_ * si < dir_ * bi:
+                res += len(self.layout.indexes)
+            keys.append(res)
+        return keys
 
 
 class WindowList(list):
