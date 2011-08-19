@@ -940,6 +940,7 @@ class Rules(list):
                 raise OptionValueError('RULES', escape(opt), escape(awn),
                     message="option should start with 'class.' or 'title.'")
             regex = opt[6:]
+            regex += '$'        # only full regex matching
             try:
                 pattern = re.compile(regex, re.I | re.UNICODE)
             except re.error, e:
