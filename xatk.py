@@ -847,12 +847,14 @@ class Config(object):
      # binded to any different unused key.
 
      # Format:
-     # {title|class}.regex = awn
+     # property.[regex] = [awn]
+     # where property is title or class.
 
-     # If regex matches a title or a class (depending on what is specified) the
-     # leftmost occurence of it is replaced with awn. awn may contain
-     # backreferences, e.g. \\1 is replaced with the first group of
-     # regex. regex matching is case insensetive.
+     # If regex matches the property the leftmost occurence of it is replaced
+     # with awn. awn may contain backreferences, e.g. \\1 is replaced with the
+     # first group of regex. regex matching is case insensetive.  If awn is
+     # omitted the window will not be binded to any of keys.  If regex is
+     # omitted it implies windows without the property or with empty property.
 
      # Examples:
 
@@ -865,6 +867,9 @@ class Config(object):
      # transorm classes icecat, iceweasel, and icedove to awns cat, weasel, and
      # dove respectively
      # class.ice(cat|weasel|dove) = \\1
+
+     # don't bind windows that don't have class property
+     # class. =
      """)
 
 
@@ -929,9 +934,6 @@ class Rules(list):
             h1, s1, t1 = map(unicode.strip, line.rpartition('='))
             h2, s2, t2 = map(unicode.strip, line.rpartition(':'))
             opt, awn = (h1, t1) if len(h1) > len(h2) else (h2, t2)
-            if opt == '':
-                raise OptionValueError('RULES', escape(opt), escape(awn),
-                                       message='')
             if opt.startswith('class.'):
                 type_ = Window.CLASS
             elif opt.startswith('title.'):
@@ -962,6 +964,8 @@ class Rules(list):
             m = regex.match(name)
             if m is None:
                 continue
+            if not awn:         # ignore the window
+                return None
             else:
                 try:
                     awn = regex.sub(awn, name, 1)
@@ -1193,7 +1197,7 @@ class Window(object):
         if isinstance(awn, basestring):
             self._awn = awn.lower()
         elif awn is None:
-            self._awn = ''
+            self._awn = None
         else:
             raise TypeError('awn must be a string object or None')
 
@@ -1206,7 +1210,7 @@ class Window(object):
         if isinstance(shortcut, basestring):
             self._shortcut = shortcut.lower()
         elif shortcut is None:
-            self._shortcut = ''
+            self._shortcut = None
         else:
             raise TypeError('Shortcut must be a string object or None')
 
@@ -2041,12 +2045,13 @@ class WindowManager(object):
         """
         closed_windows = self._windows.get_windows(wids)
         for closed in closed_windows:
-            self._keybinder.unbind(closed.keybinding)
-            Log.info(('keys', 'windows'), "window '%s' (id=0x%x) was " +
-                     "unbinded from '%s'", closed.name, closed.wid,
-                     closed.shortcut)
+            if closed.shortcut is not None:
+                self._keybinder.unbind(closed.keybinding)
             self._windows.remove(closed)
-        groups = set([w.gid for w in closed_windows if len(w.shortcut) == 1])
+            Log.info(('windows'), "window '%s' (id=0x%x) closed " %
+                     (closed.name, closed.wid))
+        groups = set([w.gid for w in closed_windows
+                      if w.shortcut and len(w.shortcut) == 1])
         for group in groups:
             group_windows = self._windows.get_group_windows(group)
             if not group_windows:
@@ -2089,20 +2094,25 @@ class WindowManager(object):
             Log.exception('windows', e)
             return
         window.awn = self._rules.get_awn(window.klass, window.name)
-        if Config.group_windows_by == 'Group':
-            window.gid = Xtool.get_window_group_id(wid)
-        elif Config.group_windows_by == 'AWN':
-            window.gid = self._windows.get_group_id(window.awn)
-        if not window.gid:
+        if window.awn is None:  # ignore the window
             window.gid = self._windows.get_unique_group_id()
-        self._add_shortcut(window)
-        if window.shortcut:
-            window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
-                window.shortcut)
-            Log.info('windows', 'new window attributes: %s' % window)
+            window.shortcut = None
+        else:
+            if Config.group_windows_by == 'Group':
+                window.gid = Xtool.get_window_group_id(wid)
+            elif Config.group_windows_by == 'AWN':
+                window.gid = self._windows.get_group_id(window.awn)
+            if not window.gid:
+                window.gid = self._windows.get_unique_group_id()
+            self._add_shortcut(window)
+            if window.shortcut:
+                window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
+                    window.shortcut)
+        Log.info('windows', 'new window attributes: %s' % window)
+        self._windows.append(window)
+        if window.awn is not None:
             if window.awn not in self._windows.get_all_awns():
                 self._history.update_item(window.awn, window.shortcut[0])
-            self._windows.append(window)
             self._update_window_name(window, window.shortcut)
             Xtool.listen_window_name(window.wid)
 
