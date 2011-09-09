@@ -541,14 +541,14 @@ class OptionValueError(ConfigError):
         self.message = message
 
     def __str__(self):
-        msg = ("in '%s' section: invalid value of '%s' option: %s" %
+        msg = ("section: '%s', option: '%s', value: '%s'" %
               (self.section, self.option, self.value))
         if self.values is not None:
             return  ("%s. The value should be one of the following %s" %
                    (msg, str(self.values)[1:-1]))
         elif self.message is not None:
             if self.message != '':
-                msg += ' (%s)' % self.message
+                msg = '%s: %s' % (msg, self.message)
             return msg
         else:
             raise TypeError("Either values or message must be specified")
@@ -750,7 +750,8 @@ class Config(object):
             hist_len = int(history_length)
         except ValueError:
             raise OptionValueError("HISTORY", "history_length",
-                                   escape(history_length), message="")
+                                   escape(history_length),
+                                   message="invalid number")
         if(hist_len < 0):
             raise OptionValueError("HISTORY", "history_length",
                                    escape(history_length),
@@ -823,10 +824,7 @@ class Config(object):
 
      # History of shortcuts is used to avoid them floating between
      # different windows across the sessions.
-     # Set the value of history_length to 0 to disable the history feature.
-     # It's recommended to set the option to slightly larger value than the
-     # number of windows you use regularly but not much larger than 20 (because
-     # of the limit of 27 latin letters).
+     # Set history_length to 0 to disable the history.
      history_length = %(history_length)s
 
      [HISTORY]
@@ -847,14 +845,17 @@ class Config(object):
      # binded to any different unused key.
 
      # Format:
-     # property.[regex] = [awn]
+     # property.[regex] = [[!]awn]
      # where property is title or class.
 
-     # If regex matches the property the leftmost occurence of it is replaced
-     # with awn. awn may contain backreferences, e.g. \\1 is replaced with the
-     # first group of regex. regex matching is case insensetive.  If awn is
-     # omitted the window will not be binded to any of keys.  If regex is
-     # omitted it implies windows without the property or with empty property.
+     # regex matching is case insensetive. awn may contain backreferences,
+     # e.g. \\1 is replaced with the first group of regex. If awn is omitted
+     # the window will not be binded to any of keys. If regex is omitted it
+     # implies windows without the property or with empty property. Exclamation
+     # mark before awn denotes that the shortcut should be permanent. Only the
+     # first symbol after ! is used to compose a shortcut. Permanent shortcuts
+     # have a higher priotity than history shortcuts and other rules, and they
+     # are never assigned to different windows.
 
      # Examples:
 
@@ -870,6 +871,9 @@ class Config(object):
 
      # don't bind windows that don't have class property
      # class. =
+
+     # always bind emacs window to 'e'
+     # class.emacs = !e
      """)
 
 
@@ -881,6 +885,7 @@ class History(OrderedDict):
 
     def parse(self, history):
         Log.debug('config', 'parsing history...')
+        # FIXME: use KeyboardLayout.isalpha
         isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
         history.reverse()
         for item in history:
@@ -925,7 +930,7 @@ class Rules(list):
 
     def parse(self, section):
         """Read a configuration file and parse RULES section."""
-        rules = []
+        self.permanent_keys = set([])
         bodylines = section.splitlines()[1:]
         for line in bodylines:
             stripline = line.lstrip()
@@ -942,16 +947,29 @@ class Rules(list):
                 raise OptionValueError('RULES', escape(opt), escape(awn),
                     message="option should start with 'class.' or 'title.'")
             regex = opt[6:]
-            regex += '$'        # only full regex matching
+            # FIXME: use KeyboardLayout.isalpha
+            isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
             try:
                 pattern = re.compile(regex, re.I | re.UNICODE)
             except re.error, e:
                 raise OptionValueError("RULES", escape(opt), escape(awn),
                     message="invalid regex: %s: %s" % (e, escape(regex)))
             else:
-                self.append((type_, pattern, awn))
-                rules.append((type_, regex, awn)) # just for debugging
-        Log.info('config', 'parsed rules: %s', str(rules))
+                if awn.startswith('!'):
+                    if len(awn) == 1 or not isalpha(awn[1]):
+                        raise OptionValueError('RULES', escape(opt),
+                            escape(awn), message='invalid key \'%s\'' % awn[1])
+                    if awn[1] not in self.permanent_keys:
+                        self.permanent_keys.add(awn[1])
+                    else:
+                        raise OptionValueError('RULES', escape(opt),
+                            escape(awn), message="permanent key duplicate: "
+                                                 "'%s'" % awn[1])
+                    self.insert(0, (type_, pattern, awn))
+                else:
+                    self.append((type_, pattern, awn))
+        Log.info('config', 'parsed rules: %s',
+                 str([(t, r.pattern, a) for (t, r, a) in self]))
 
     def get_awn(self, winclass, winname):
         """
@@ -962,19 +980,22 @@ class Rules(list):
             type_, regex, awn = rule
             name = winclass if type_ == Window.CLASS else winname
             m = regex.match(name)
-            if m is None:
+            if m is None or (not regex.pattern and name):
                 continue
             if not awn:         # ignore the window
                 return None
             else:
                 try:
-                    awn = regex.sub(awn, name, 1)
+                    awn = regex.sub(awn, name[:m.end()], 1)
                 except re.error, e:
                     Log.exception('config', '%s: awn = %s ' % (e, awn))
                     return winclass
                 else:
                     return awn
         return winclass
+
+    def get_permanent_keys(self):
+        return self.permanent_keys
 
 
 class KeyboardLayout(object):
@@ -1184,6 +1205,15 @@ class Window(object):
     - `shortcut_sort_key`: variable by which windows can be sorted
     - `keybinding`: keybinding object
     """
+
+    wid = None
+    gid = None
+    _awn = None
+    name = None
+    klass = None
+    _shortcut = None
+    shortcut_sort_key = [sys.maxint]
+    keybinding = None
 
     CLASS = 0
     NAME = 1
@@ -1840,7 +1870,7 @@ class BadShortcut(KeyBinderError):
         self.shortcut = shortcut
 
     def __str__(self):
-        return ("can't bind shotcut '%s'. Symbol '%s' has bad keycode." %
+        return ("can't bind shortcut '%s'. Symbol '%s' has bad keycode." %
                 (self.shortcut, self.shortcut[0]))
 
 
@@ -1989,6 +2019,7 @@ class WindowManager(object):
         self._rules = rules
         self._history = history
         self._shortgen = ShortcutGenerator()
+        map(self._shortgen.forbid_base, rules.get_permanent_keys())
         self._keybinder = KeyBinder()
         self._windows = WindowList()
         for wid in Xtool.get_window_list():
@@ -2060,7 +2091,8 @@ class WindowManager(object):
             leader = group_windows[0]
             leader_shortcut = leader.shortcut[0]
             for w in group_windows:
-                self._keybinder.unbind(w.keybinding)
+                if w.keybinding is not None:
+                    self._keybinder.unbind(w.keybinding)
                 w.prev_shortcut = w.shortcut
                 w.shortcut = None
             leader.shortcut = leader_shortcut
@@ -2096,46 +2128,63 @@ class WindowManager(object):
         window.awn = self._rules.get_awn(window.klass, window.name)
         if window.awn is None:  # ignore the window
             window.gid = self._windows.get_unique_group_id()
-            window.shortcut = None
         else:
+            # window grouping
+            group = self._windows.get_group_id(window.awn)
             if Config.group_windows_by == 'Group':
                 window.gid = Xtool.get_window_group_id(wid)
             elif Config.group_windows_by == 'AWN':
-                window.gid = self._windows.get_group_id(window.awn)
+                window.gid = group
+            else:
+                window.gid = self._windows.get_unique_group_id()
             if not window.gid:
                 window.gid = self._windows.get_unique_group_id()
-            self._add_shortcut(window)
-            if window.shortcut:
-                window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
-                    window.shortcut)
+            # permanent shortcut
+            if window.awn.startswith('!') and not group:
+                self._add_shortcut(window, window.awn[1])
+            # normal awn
+            else:
+                self._add_shortcut(window)
         Log.info('windows', 'new window attributes: %s' % window)
-        self._windows.append(window)
-        if window.awn is not None:
-            if window.awn not in self._windows.get_all_awns():
+        if window.shortcut is not None:
+            if (not window.awn.startswith('!') and
+                window.awn not in self._windows.get_all_awns()):
                 self._history.update_item(window.awn, window.shortcut[0])
             self._update_window_name(window, window.shortcut)
+        if window.awn is not None:
             Xtool.listen_window_name(window.wid)
+        self._windows.append(window)
 
-    def _add_shortcut(self, window):
+    def _add_shortcut(self, window, shortcut=None):
         """
-        Generate a new unused shortcut for `window` and add the shortcut to
-        the `window`. Set the shortcut to None if all the possible keys are
-        grabbed.
+        Try to bind window to keybinding which corresponds to the shortcut.
+
+        Also set the following window attributes: shortcut, shortcut_sort_key,
+        keybinding. If shortcut is not specified, generate a new unused
+        shortcut. If operation isn't successful (e.g. shortcut is already
+        grabbed), don't modify the window attributes.
         """
-        while True:
-            shortcut = self._shortgen.new_shortcut(window, self._windows,
-                                                   self._history)
-            if not shortcut:
-                Log.info(('windows', 'keys'), 'so many windows, so few keys')
-                window.shortcut = None
-                return
+        if not shortcut:
+            while True:
+                shortcut = self._shortgen.new_shortcut(window, self._windows,
+                                                       self._history)
+                if not shortcut:
+                    Log.info(('windows', 'keys'),
+                             'so many windows, so few keys')
+                    return
+                try:
+                    kb = self._bind(window.wid, shortcut)
+                except (GrabError, CyclicKeybindingError), e:
+                    Log.info('keys', e)
+                    self._shortgen.forbid_base(shortcut[0])
+                else:
+                    break
+        else:
             try:
                 kb = self._bind(window.wid, shortcut)
             except (GrabError, CyclicKeybindingError), e:
                 Log.info('keys', e)
-                self._shortgen.forbid_base(shortcut[0])
-            else:
-                break
+                return
         window.shortcut = shortcut
         window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
             window.shortcut)
@@ -2147,21 +2196,25 @@ class WindowManager(object):
         """Change the window name, so it includes the shortcut."""
         if Config.title_format == 'None':
             return
+        if window.shortcut is None:
+            return
         try:
             new_name = Xtool.get_window_name(window.wid)
         except BadWindow, e:
             Log.exception('windows', e)
             return
-        edges = Config.title_format.split('%t')
-        start = edges[0].replace('%s', prev_shortcut)
-        end = edges[1].replace('%s', prev_shortcut)
-        if new_name.startswith(start) and new_name.endswith(end):
-            new_name = new_name[len(start):len(new_name)-len(end)]
-            if new_name == window.name and prev_shortcut == window.shortcut:
-                return                  # window name wasn't changed
-        if new_name != window.name:
-            Log.info('windows', "window name '%s' (id=0x%x) changed to '%s'",
-                    window.name, window.wid, new_name)
+        if prev_shortcut is not None:
+            edges = Config.title_format.split('%t')
+            start = edges[0].replace('%s', prev_shortcut)
+            end = edges[1].replace('%s', prev_shortcut)
+            if new_name.startswith(start) and new_name.endswith(end):
+                new_name = new_name[len(start):len(new_name)-len(end)]
+                if (new_name == window.name and
+                    prev_shortcut == window.shortcut):
+                    return              # window name wasn't changed
+            if new_name != window.name:
+                Log.info('windows', "window name '%s' (id=0x%x) changed to "
+                         "'%s'", window.name, window.wid, new_name)
         window.name = new_name
         new_name = Config.title_format.replace('%t', new_name)
         new_name = new_name.replace('%s', window.shortcut)
@@ -2171,7 +2224,7 @@ class WindowManager(object):
 class SignalHandler:
     """
     Object holding static methods that implement the program behaviour
-    when recieving a signal.
+    when recieving signals.
     """
 
     history = None
