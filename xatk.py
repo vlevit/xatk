@@ -489,44 +489,14 @@ class ParseError(ConfigError):
     """Wrapper for all exceptions of ConfigParser module."""
 
 
-class UnrecognizedOption(ConfigError):
-    """Configuration file contains undefined option name."""
-
-    def __init__(self, option):
-        self.option = option
-
-    def __str__(self):
-        return "option '%s' is unrecognized" % self.option
-
-
-class UnrecognizedSection(ConfigError):
-    """Configuration file contains undefined section name."""
-
-    def __init__(self, section):
-        self.section = section
-
-    def __str__(self):
-        return "section '%s' is unrecognized" % self.section
-
-
-class MissingOption(ConfigError):
-    """Configuration file misses some option."""
-
-    def __init__(self, option):
-        self.option = option
-
-    def __str__(self):
-        return "option '%s' is missing" % self.option
-
-
-class MissingSection(ConfigError):
+class MissingSectionError(ConfigError):
     """Configuration file misses some section."""
 
     def __init__(self, section):
         self.section = section
 
     def __str__(self):
-        return "section '%s' is missing" % self.section
+        return "missing section %s" % self.section
 
 
 class OptionValueError(ConfigError):
@@ -599,26 +569,34 @@ class Config(object):
         except ConfigParser.Error, e:
             raise ParseError(e)
         else:
-            for sec in (u'SETTINGS', u'RULES'):
-                if not config.has_section(sec):
-                    raise MissingSection(str(sec))
-            items = dict(config.items(u'SETTINGS'))
-            Log.info('config', 'option values: %s', str(items))
-            options = set(items.keys())
-            keys = set(Config._defaults.keys())
-            missing = keys.difference(options)
-            unrecognized = options.difference(keys)
-            for opt in missing:
-                raise MissingOption(escape(opt))
-            for opt in unrecognized:
-                raise UnrecognizedOption(escape(opt))
-            Config._parse_options(items, Config._get_valid_opts())
-            start, end = Config.find_section(u'RULES', uconf)
-            rules.parse(uconf[start:end])
+            for sec in config.sections():
+                if sec not in ['SETTINGS', 'HISTORY', 'RULES']:
+                    Log.warning('config', "unrecognized section %s", sec)
+            if config.has_section('SETTINGS'):
+                items = dict(config.items('SETTINGS'))
+                Log.info('config', 'option values: %s', str(items))
+                options = set(items.keys())
+                keys = set(Config._defaults.keys())
+                missing = keys.difference(options)
+                unrecognized = options.difference(keys)
+                for opt in missing:
+                    Log.warning('config', 'missing option %s', opt)
+                for opt in unrecognized:
+                    Log.warning('config', 'unrecognized option %s ', opt)
+                    del items[opt]
+                Config._parse_options(items, Config._get_valid_opts())
+            else:
+                Log.warning('config', 'missing section SETTINGS')
+            if config.has_section('RULES'):
+                start, end = Config.find_section('RULES', uconf)
+                rules.parse(uconf[start:end])
+            else:
+                Log.warning('config', 'missing section RULES')
             if Config.history_length != 0:
-                if not config.has_section(u'HISTORY'):
-                    raise MissingSection('HISTORY')
-                history.parse(config.items(u'HISTORY'))
+                if config.has_section('HISTORY'):
+                    history.parse(config.items('HISTORY'))
+                else:
+                    Log.warning('config', 'missing section HISTORY')
 
     @staticmethod
     def write(config=None):
@@ -687,13 +665,13 @@ class Config(object):
     def find_section(section, config):
         """
         Return a tuple containing the start and end positions of `section`
-        in `config` string. If not found `MissingSection` is raised.
+        in `config` string. If not found `MissingSectionError` is raised.
         """
         secre = re.compile(Config.SECRE % section,
                            re.DOTALL | re.MULTILINE | re.VERBOSE | re.UNICODE)
         m = secre.search(config)
         if m is None:
-            raise MissingSection(escape(section))
+            raise MissingSectionError(escape(section))
         else:
             return m.span()
 
@@ -913,7 +891,7 @@ class History(OrderedDict):
         body = '\n'.join(items)
         try:
             Config.write_section(u'HISTORY', body)
-        except (IOError, OSError, MissingSection), e:
+        except (IOError, OSError, MissingSectionError), e:
             Log.exception('config',
                           'when writing the history: %s' % e)
         else:
@@ -928,9 +906,11 @@ class History(OrderedDict):
 class Rules(list):
     """Extend list. Contain tuples (type, regex, awn)."""
 
+    permanent_keys = set()
+
     def parse(self, section):
         """Read a configuration file and parse RULES section."""
-        self.permanent_keys = set([])
+        self.permanent_keys = set()
         bodylines = section.splitlines()[1:]
         for line in bodylines:
             stripline = line.lstrip()
@@ -2240,7 +2220,7 @@ class SignalHandler:
         """Save the current history to the configuration file."""
         try:
             SignalHandler.history.write()
-        except (IOError, OSError, MissingSection), e:
+        except (IOError, OSError, MissingSectionError), e:
             Log.exception('config', e)
 
     @staticmethod
@@ -2258,7 +2238,7 @@ def graceful_exit(exit_code=0, history=None):
     if history:
         try:
             history.write()
-        except (IOError, OSError, MissingSection), e:
+        except (IOError, OSError, MissingSectionError), e:
             Log.exception('config', e)
     logging.shutdown()
     sys.exit(exit_code)
@@ -2472,6 +2452,7 @@ def main():
     rules = Rules()
     history = History()
     Config.set_filename(options.filename)
+    Config.use_defaults()
     if os.path.exists(options.filename):
         try:
             Config.parse(rules, history)
@@ -2484,8 +2465,6 @@ def main():
         except IOError, e:
             Log.exception('config', e)
             graceful_exit(1)
-        else:
-            Config.use_defaults()
 
     if options.daemon:
         Log.release_stderr()
