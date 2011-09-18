@@ -514,7 +514,7 @@ class OptionValueError(ConfigError):
         msg = ("section: %s, option: %s, value: %s" %
               (self.section, self.option, self.value))
         if self.values is not None:
-            return  ("%s. The value should be one of the following %s" %
+            return  ("%s. The value should be one of the following: %s" %
                    (msg, ', '.join(self.values)))
         elif self.message is not None:
             if self.message != '':
@@ -844,7 +844,7 @@ class Config(object):
 
      # Format:
      # property.[regex] = [[!]awn]
-     # where property is title or class.
+     # where property is one of the following: title, class, instance.
 
      # regex matching is case insensetive. awn may contain backreferences,
      # e.g. \\1 is replaced with the first group of regex. If awn is omitted
@@ -939,14 +939,13 @@ class Rules(list):
             h1, s1, t1 = map(unicode.strip, line.rpartition('='))
             h2, s2, t2 = map(unicode.strip, line.rpartition(':'))
             opt, awn = (h1, t1) if len(h1) > len(h2) else (h2, t2)
-            if opt.startswith('class.'):
-                type_ = Window.CLASS
-            elif opt.startswith('title.'):
-                type_ = Window.NAME
-            else:
+            props = ['instance', 'class', 'title']
+            dotpos = opt.find('.')
+            if dotpos == -1 or opt[:dotpos] not in props:
                 raise OptionValueError('RULES', escape(opt), escape(awn),
-                    message="option should start with 'class.' or 'title.'")
-            regex = opt[6:]
+                                       values=props)
+            type_ = opt[:dotpos]
+            regex = opt[dotpos+1:]
             # FIXME: use KeyboardLayout.isalpha
             isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
             try:
@@ -971,14 +970,19 @@ class Rules(list):
         Log.info('config', 'parsed rules: %s',
                  str([(t, r.pattern, a) for (t, r, a) in self]))
 
-    def get_awn(self, winclass, winname):
+    def get_awn(self, window):
         """
-        Transofrm winclass or winname to awn according to the rules.
-        Return winclass if no rule matches.
+        Transofrm window instance, class, or name to awn according to the
+        rules.  Return class if no rule matches.
         """
         for ruleno, rule in enumerate(self):
             type_, regex, awn = rule
-            name = winclass if type_ == Window.CLASS else winname
+            if type_ == 'instance':
+                name = window.instance
+            elif type_ == 'class':
+                name = window.klass
+            else:
+                name = window.name
             m = regex.match(name)
             if m is None or (not regex.pattern and name):
                 continue
@@ -989,10 +993,10 @@ class Rules(list):
                     awn = regex.sub(awn, name[:m.end()], 1)
                 except re.error, e:
                     Log.exception('config', '%s: awn = %s ' % (e, awn))
-                    return winclass
+                    return window.klass
                 else:
                     return awn
-        return winclass
+        return window.klass
 
     def get_permanent_keys(self):
         return self.permanent_keys
@@ -1211,14 +1215,12 @@ class Window(object):
     gid = None
     _awn = None
     name = None
+    instance = None
     klass = None
     kind = None
     _shortcut = None
     shortcut_sort_key = [sys.maxint]
     keybinding = None
-
-    CLASS = 0
-    NAME = 1
 
     @property
     def awn(self):
@@ -1431,7 +1433,7 @@ class Xtool(object):
             return u''
 
     @staticmethod
-    def get_window_class(wid, instance=False):
+    def get_window_class(wid):
         win = Xtool._get_window(wid)
         prop = None
         try:
@@ -1441,13 +1443,12 @@ class Xtool(object):
         if prop:
             parts = prop.value.split('\0')
             if len(parts) < 2:
-                return u''
-            if instance:
-                return parts[0].decode('latin_1', 'ignore_log')
-            else:
-                return parts[1].decode('latin_1', 'ignore_log')
+                return (u'', u'')
+            return (parts[0].decode('latin_1', 'ignore_log'),
+                    parts[1].decode('latin_1', 'ignore_log'))
+
         else:
-            return u''
+            return (u'', u'')
 
     @staticmethod
     def get_window_group_id(wid):
@@ -2168,14 +2169,14 @@ class WindowManager(object):
         window.wid = wid
         window.gid = 0
         try:
-            window.name = Xtool.get_window_name(window.wid)
-            window.klass = Xtool.get_window_class(wid)
+            window.name = Xtool.get_window_name(wid)
+            window.instance, window.klass = Xtool.get_window_class(wid)
             window.kind = self._get_window_type(wid)
         except BadWindow, e:
             Log.exception('windows', e)
             return
         if not self.window_types or window.kind in self.window_types:
-            window.awn = self._rules.get_awn(window.klass, window.name)
+            window.awn = self._rules.get_awn(window)
         if window.awn is None:  # ignore the window
             window.gid = self._windows.get_unique_group_id()
         else:
