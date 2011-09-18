@@ -511,11 +511,11 @@ class OptionValueError(ConfigError):
         self.message = message
 
     def __str__(self):
-        msg = ("section: '%s', option: '%s', value: '%s'" %
+        msg = ("section: %s, option: %s, value: %s" %
               (self.section, self.option, self.value))
         if self.values is not None:
             return  ("%s. The value should be one of the following %s" %
-                   (msg, str(self.values)[1:-1]))
+                   (msg, ', '.join(self.values)))
         elif self.message is not None:
             if self.message != '':
                 msg = '%s: %s' % (msg, self.message)
@@ -727,14 +727,28 @@ class Config(object):
         try:
             hist_len = int(history_length)
         except ValueError:
-            raise OptionValueError("HISTORY", "history_length",
+            raise OptionValueError("SETTINGS", "history_length",
                                    escape(history_length),
                                    message="invalid number")
         if(hist_len < 0):
-            raise OptionValueError("HISTORY", "history_length",
+            raise OptionValueError("SETTINGS", "history_length",
                                    escape(history_length),
                                    message="the value must be positive")
         return hist_len
+
+    known_window_types = ['NORMAL', 'DIALOG', 'UTILITY', 'MENU',
+                          'TOOLBAR', 'DESKTOP', 'DOCK', 'SPLASH']
+
+    def _parse_window_types(types):
+        types = types.split()
+        for t in types:
+            if t == 'All':
+                return []
+            if t not in Config.known_window_types:
+                raise OptionValueError("SETTINGS", "window_types", escape(t),
+                    message="unkown window type, window types are %s" %
+                    ', '.join(Config.known_window_types))
+        return types
 
     _defaults = {
         'keyboard_layout': ('QWERTY', ('QWERTY', 'Dvorak')),
@@ -743,7 +757,8 @@ class Config(object):
         'title_format': ('%t   /%s/', _parse_title_format),
         'history_length': ('20', _parse_history_length),
         'desktop_action': ('SwitchDesktop', ('SwitchDesktop', 'MoveWindow',
-                                              'None'))}
+                                              'None')),
+        'window_types': ('NORMAL DIALOG UTILITY MENU', _parse_window_types)}
     """
     Dictionary with keys containing options, and values containing
     tuples of the default value and a list of possible valid values.
@@ -799,6 +814,11 @@ class Config(object):
      #  - None -- just activate the window (actual behaviour may differ
      # with different window managers).
      desktop_action = %(desktop_action)s
+
+     # List of allowed window types.
+     # Possible values:
+     #   All NORMAL DIALOG UTILITY MENU TOOLBAR DESKTOP DOCK SPLASH
+     window_types = NORMAL DIALOG UTILITY MENU
 
      # History of shortcuts is used to avoid them floating between
      # different windows across the sessions.
@@ -1179,6 +1199,7 @@ class Window(object):
     - `awn`: abstract window name, from which shortcut is produced
     - `name`: real window name (title)
     - `klass`: window class
+    - `kind`: window type (one atom value)
     - `shortcut`: is represented by a string of length one or two (e.g. 'a' or
       'bn', where 'a' is the base key, 'b' is the prefix, and 'n' is the
       suffix)
@@ -1191,6 +1212,7 @@ class Window(object):
     _awn = None
     name = None
     klass = None
+    kind = None
     _shortcut = None
     shortcut_sort_key = [sys.maxint]
     keybinding = None
@@ -1480,6 +1502,27 @@ class Xtool(object):
     @staticmethod
     def set_window_icon_name(wid, name):
         Xtool._set_property(wid, '_NET_WM_ICON_NAME', name)
+
+    @staticmethod
+    def get_transient_for(wid):
+        window = Xtool._get_window(wid)
+        reply = Xtool._get_full_property(window,
+            Xtool._atom('WM_TRANSIENT_FOR'), Xatom.WINDOW)
+        if reply is not None:
+            return reply.value[0]
+
+    @staticmethod
+    def get_window_type_atom(kind):
+        return Xtool._atom('_NET_WM_WINDOW_TYPE_' + kind)
+
+    @staticmethod
+    def get_window_types(wid):
+        window = Xtool._get_window(wid)
+        reply = Xtool._get_full_property(window,
+            Xtool._atom('_NET_WM_WINDOW_TYPE'), Xatom.ATOM)
+        if reply is not None:
+            return reply.value
+        return []
 
     @staticmethod
     def _get_desktop_number(wid=None):
@@ -2002,10 +2045,35 @@ class WindowManager(object):
         map(self._shortgen.forbid_base, rules.get_permanent_keys())
         self._keybinder = KeyBinder()
         self._windows = WindowList()
+        self._init_window_types()
         for wid in Xtool.get_window_list():
             self._on_window_create(wid)
         Xtool.register_window_list_listener(self)
         Xtool.register_window_name_listener(self)
+
+    def _init_window_types(self):
+        self.known_window_types = []
+        self.window_types = []
+        if Config.window_types:
+            self.window_types = [0] * len(Config.window_types)
+            for t in Config.known_window_types:
+                atom = Xtool.get_window_type_atom(t)
+                self.known_window_types.append(atom)
+                if t in Config.window_types:
+                    self.window_types[Config.window_types.index(t)] = atom
+        Log.debug('X', 'known window types: %s',
+                  ', '.join(map(str, self.known_window_types)))
+        Log.debug('X', 'window types: %s',
+                  ', '.join(map(str, self.window_types)))
+
+    def _get_window_type(self, wid):
+        types = Xtool.get_window_types(wid)
+        for t in types:
+            if t in self.known_window_types:
+                return t
+        if Xtool.get_transient_for(wid) is None:
+            return Xtool.get_window_type_atom('NORMAL')
+        return Xtool.get_window_type_atom('DIALOG')
 
     def _bind(self, wid, shortcut):
         if Config.desktop_action == 'SwitchDesktop':
@@ -2102,10 +2170,12 @@ class WindowManager(object):
         try:
             window.name = Xtool.get_window_name(window.wid)
             window.klass = Xtool.get_window_class(wid)
+            window.kind = self._get_window_type(wid)
         except BadWindow, e:
             Log.exception('windows', e)
             return
-        window.awn = self._rules.get_awn(window.klass, window.name)
+        if not self.window_types or window.kind in self.window_types:
+            window.awn = self._rules.get_awn(window.klass, window.name)
         if window.awn is None:  # ignore the window
             window.gid = self._windows.get_unique_group_id()
         else:
