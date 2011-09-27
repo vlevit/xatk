@@ -1347,6 +1347,16 @@ class Xtool(object):
         return keys
 
     @staticmethod
+    def modmask_equal(modmask1, modmask2):
+        """
+        Return True if modmask1 and modmask2 are equal.
+
+        Mod2Mask and LockMask in the given modmasks are not considered.
+        """
+        return (modmask1 & ~(X.Mod2Mask | X.LockMask) ==
+                modmask2 & ~(X.Mod2Mask | X.LockMask))
+
+    @staticmethod
     def _load_keys():
         for group in Xlib.keysymdef.__all__:
             XK.load_keysym_group(group)
@@ -1771,16 +1781,17 @@ class Keybinding(object):
             return None
 
     def match_partial(self, keycodes, modmask):
-        if self.modmask == modmask:
+        if Xtool.modmask_equal(self.modmask, modmask):
             return self.keycodes[:len(keycodes)] == keycodes
         return False
 
     def match_full(self, keycodes, modmask):
-        return self.modmask == modmask and self.keycodes == keycodes
+        return (Xtool.modmask_equal(self.modmask, modmask) and
+                self.keycodes == keycodes)
 
     def match_cyclic(self, keycodes, modmask):
         return (self.cyclic and
-                self.modmask == modmask and
+                Xtool.modmask_equal(self.modmask, modmask) and
                 (self.keycodes == keycodes or
                  self.keycodes[:-1] == keycodes))
 
@@ -1798,7 +1809,7 @@ class Keybinding(object):
         - mod+ab and mod+abc
         """
         # mod+a and mod2+a
-        if self.modmask != keybinding.modmask:
+        if not Xtool.modmask_equal(self.modmask, keybinding.modmask):
             return False
         # mod+a and mod+a
         if self.keycodes == keybinding.keycodes:
@@ -2009,7 +2020,8 @@ class KeyListener(object):
                 self._initial_state()
             return
         if ev.detail != self.keycodes[-1]:
-            if self._cycling and not self.pressed and self._modmask == 0:
+            if (self._cycling and not self.pressed and
+                Xtool.modmask_equal(self._modmask, 0)):
                 self._ungrab_keyboard()
                 self._initial_state()
             return
@@ -2018,7 +2030,8 @@ class KeyListener(object):
             Log.info('keys', 'cyclic keybinding cauguht: %s' % kb)
             kb.cycle()
             if (not self.pressed and
-                (self._modmask != ev.state or self._modmask == 0)):
+                (not Xtool.modmask_equal(self._modmask, ev.state) or
+                 Xtool.modmask_equal(self._modmask, 0))):
                 self._ungrab_keyboard()
                 self._initial_state()
             else:
