@@ -2202,27 +2202,32 @@ class WindowManager(object):
 
         """
         closed_windows = self._windows.get_windows(wids)
+        group_shotcuts = {}
         for closed in closed_windows:
             if closed.shortcut is not None:
                 self._keybinder.unbind(closed.keybinding)
+                group_shotcuts[closed.gid] = closed.shortcut[0]
             self._windows.remove(closed)
             Log.info(('windows'), "window '%s' (id=0x%x) closed " %
                      (closed.name, closed.wid))
+        # If the group leader was closed it is needed to rebind all the windows
+        # of the group. Simultaneous closing of few leaders is also possible.
+        # groups of closed leaders
         groups = set([w.gid for w in closed_windows
                       if w.shortcut and len(w.shortcut) == 1])
         for group in groups:
             group_windows = self._windows.get_group_windows(group)
             if not group_windows:
                 continue
-            # rebind all the group_windows of the group
-            leader = group_windows[0]
-            leader_shortcut = leader.shortcut[0]
+            # reset window shortcuts
             for w in group_windows:
                 if w.keybinding is not None:
                     self._keybinder.unbind(w.keybinding)
                 w.prev_shortcut = w.shortcut
                 w.shortcut = None
-            leader.shortcut = leader_shortcut
+            # bind the leader manually
+            leader = group_windows[0]
+            leader.shortcut = group_shotcuts[group]
             leader.shortcut_sort_key = self._shortgen.shortcut_sort_key(
                 leader.shortcut)
             leader.keybinding = self._bind(leader.wid, leader.shortcut)
@@ -2230,6 +2235,7 @@ class WindowManager(object):
                      leader.prev_shortcut, leader.shortcut)
             self._update_window_name(leader, leader.prev_shortcut)
             del leader.prev_shortcut
+            # bind other windows with _add_shortcut
             for w in group_windows[1:]:
                 self._add_shortcut(w)
                 Log.info('keys', 'Rebinding: %s -> %s',
