@@ -65,9 +65,9 @@ else:
     XLIB_PRESENT = True
 
 
-PROG_NAME = 'xatk'
+PROG_NAME = os.path.basename(sys.argv[0])
 VERSION = (0, 0, 1)
-CONFIG_PATH = '~/.xatkrc'
+CONFIG_PATH = ('~/.xatkrc', '~/.xatk/xatkrc')
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
 ENCODING = locale.getpreferredencoding()
@@ -527,9 +527,37 @@ class OptionValueError(ConfigError):
 class Config(object):
     """Object that reads, parses, and writes a configuration file."""
 
+    _path = None
+
     @staticmethod
-    def set_filename(filename):
-        Config._filename = filename
+    def set_path(path):
+        """Set a user-defined configuration file path."""
+        Config._path = path
+
+    @staticmethod
+    def get_path():
+        """
+        Obtain the configuration file path either standard or user-defined.
+
+        Return a config file name set by `set_path`. If it is not set, search
+        for first existent file name in CONFIG_PATH tuple. If no file exists,
+        return None. The function has a side effect: only the first call will
+        cause searching for a file name, it will remember the name, and will
+        use it for the next time.
+        """
+        if Config._path is None:
+            for p in CONFIG_PATH:
+                path = os.path.expanduser(p)
+                if os.path.exists(path):
+                    Config._path = path
+                    return Config._path
+        else:
+            return Config._path
+
+    @staticmethod
+    def get_dirpath():
+        """Get directory path of the configuration file."""
+        return os.path.dirname(Config.get_path())
 
     @staticmethod
     def use_defaults():
@@ -548,7 +576,7 @@ class Config(object):
         `rules` and `history` objects at the end.
         """
         try:
-            f = open(Config._filename)
+            f = open(Config.get_path())
         except IOError, e:
             raise ConfigError(e)
         try:
@@ -606,28 +634,28 @@ class Config(object):
         """
         if config is None:
             config = Config.get_default_config()
-        rewrite = os.path.exists(Config._filename)
+        path = Config.get_path()
+        rewrite = os.path.exists(path)
         try:
             if not rewrite:
-                f = open(Config._filename, 'w')
+                f = open(path, 'w')
             else:
-                dir_ = os.path.dirname(Config._filename)
-                tempfilename = os.path.join(dir_,
-                    Config._filename + '.%s~' % PROG_NAME)
-                f = open(tempfilename, 'w')
+                dirpath = Config.get_dirpath()
+                temppath = os.path.join(dirpath, '%s.%s~' % (path, PROG_NAME))
+                f = open(temppath, 'w')
             f.write(config.encode(ENCODING))
             f.flush()
             os.fsync(f.fileno())
             if rewrite:
-                os.rename(tempfilename, Config._filename)
+                os.rename(temppath, path)
         except (IOError, OSError):
             raise
         else:
             Log.info('config', 'config written')
         finally:
             f.close()
-            if rewrite and os.path.exists(tempfilename):
-                os.remove(tempfilename)
+            if rewrite and os.path.exists(temppath):
+                os.remove(temppath)
 
     @staticmethod
     def _get_defaults():
@@ -639,7 +667,7 @@ class Config(object):
 
     @staticmethod
     def read():
-        f = open(Config._filename, 'r')
+        f = open(Config.get_path(), 'r')
         try:
             config = f.read()
         except IOError:
@@ -770,7 +798,8 @@ class Config(object):
     """
 
     _config_str = re.compile('^ +', re.M).sub('',
-     u"""# All option values are case sensitive unless other noted.
+     u"""# -*- mode: conf; -*-
+      # All option values are case sensitive unless other noted.
 
      # List of modifiers:
      #  - Control (aliases: C, Ctrl)
@@ -2432,11 +2461,11 @@ def parse_options():
                          action='version',
                          help="Show program's version number and exit.")
     optparser.add_option('-f', '--file',
-                         dest='filename',
+                         dest='filepath',
                          metavar='FILE',
-                         default=os.path.expanduser(CONFIG_PATH),
-                         help='Specify a configuration file. The default is '
-                         '%s.' % CONFIG_PATH)
+                         help='Specify a configuration file. By default, the '
+                         'configuration file is searched for in the following '
+                         'places: %s' % ', '.join(CONFIG_PATH))
     optparser.add_option('-d', '--display',
                          dest='display',
                          metavar='DISPLAY',
@@ -2574,7 +2603,7 @@ def daemonize():
 def main():
     options = parse_options()
     if options.print_defaults:
-        print Config.get_default_config()
+        print Config.get_default_config().encode(ENCODING)
         sys.exit(0)
     if options.verbosity == 0:
         Log.setLevel(logging.WARNING)
@@ -2614,20 +2643,22 @@ def main():
 
     rules = Rules()
     history = History()
-    Config.set_filename(options.filename)
+    if options.filepath is not None:
+        Config.set_path(options.filepath)
     Config.use_defaults()
-    if os.path.exists(options.filename):
+    filepath = Config.get_path()
+    if filepath and os.path.exists(filepath):
         try:
             Config.parse(rules, history)
         except ConfigError, e:
             Log.exception('config', e)
             graceful_exit(1)
     else:
-        try:
-            Config.write()
-        except IOError, e:
-            Log.exception('config', e)
-            graceful_exit(1)
+        pathstr = '%s ' % filepath if options.filepath else ''
+        Log.error('config', ("congiguration file %sdoesn't exist. Create "
+                  "it first, e.g. mkdir ~/.xatk && %s --print-defaults > "
+                  "%s") % (pathstr, PROG_NAME, CONFIG_PATH[1]))
+        graceful_exit(1)
 
     if options.daemon:
         Log.release_stderr()
