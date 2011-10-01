@@ -872,6 +872,12 @@ class Config(object):
 
      # always bind emacs window to 'e'
      # class.emacs = !e
+
+     # Instead of the property it is possible to specify a template, which
+     # combines different properties within one rule. With regular expressions
+     # it is possible to simulate logical operators.
+     # Ignore utility and dialog windows of GIMP
+     # class and not title.gimp and not (?!gnu.{27,27}$|.*\u2013 gimp$) =
      """)
 
 
@@ -923,10 +929,69 @@ class History(OrderedDict):
             self.popitem(last=False)
 
 
-class Rules(list):
-    """Extend list. Contain tuples (type, regex, awn)."""
+class Rule(object):
+    """Represent a mapping of window properties to awn."""
 
-    permanent_keys = set()
+    props = ['instance', 'class', 'title']
+
+    template = None                 # list of strings and indexes of Rule.props
+    template_str = None             # remember for debugging
+    regpat = None                   # compiled regex pattern
+    awn = None
+
+    def __init__(self, opt, awn):
+        """
+        Initialize Rule values by parsing opt and awn. Raise OptionValueError.
+        """
+        self.parse(opt, awn)
+
+    def parse(self, opt, awn):
+        self.awn = awn
+        dotpos = opt.find('.')
+        if dotpos == -1:
+            raise OptionValueError('RULES', escape(opt), escape(awn),
+                                   message="property and regex must "
+                                   "be separated by a dot.")
+        self.template_str = opt[:dotpos]
+        template = [opt[:dotpos]]
+        regex = opt[dotpos+1:]
+        prop_found = False
+        for i, prop in enumerate(Rule.props):
+            j = 0
+            while j != len(template):
+                token = template[j]
+                if isinstance(token, basestring):
+                    pos = token.find(prop)
+                    if pos != -1:
+                        prop_found = True
+                        if pos != 0:
+                            template[j:j] = [token[:pos]]
+                            j += 1
+                        template[j] = i
+                        if len(token) != pos + len(prop):
+                            j += 1
+                            template[j:j] = [token[pos+len(prop):]]
+                j += 1
+        if not prop_found:
+            raise OptionValueError('RULES', escape(opt), escape(awn),
+                                   message="template must contain at least "
+                                   "one property: %s" % ', '.join(Rule.props))
+        self.template = template
+        try:
+            self.regpat = re.compile(regex, re.I | re.UNICODE)
+        except re.error, e:
+            raise OptionValueError("RULES", escape(opt), escape(awn),
+                message="invalid regex: %s: %s" % (e, escape(regex)))
+
+    def __str__(self):
+        return ', '.join([self.template_str, self.regpat.pattern, self.awn])
+
+
+class Rules(list):
+    """Extend list. Contain list of Rule objects."""
+
+    permkey_pos = 0              # position of the last permananet key in Rules
+    permanent_keys = set()       # permanent keys must be unique
 
     def parse(self, section):
         """Read a configuration file and parse RULES section."""
@@ -936,61 +1001,61 @@ class Rules(list):
             stripline = line.lstrip()
             if stripline == '' or stripline.startswith('#'):
                 continue
+            # split option and value by LAST = or : as
+            # = or : may be contained in regex
             h1, s1, t1 = map(unicode.strip, line.rpartition('='))
             h2, s2, t2 = map(unicode.strip, line.rpartition(':'))
             opt, awn = (h1, t1) if len(h1) > len(h2) else (h2, t2)
-            props = ['instance', 'class', 'title']
-            dotpos = opt.find('.')
-            if dotpos == -1 or opt[:dotpos] not in props:
-                raise OptionValueError('RULES', escape(opt), escape(awn),
-                                       values=props)
-            type_ = opt[:dotpos]
-            regex = opt[dotpos+1:]
-            # FIXME: use KeyboardLayout.isalpha
-            isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
-            try:
-                pattern = re.compile(regex, re.I | re.UNICODE)
-            except re.error, e:
-                raise OptionValueError("RULES", escape(opt), escape(awn),
-                    message="invalid regex: %s: %s" % (e, escape(regex)))
-            else:
-                if awn.startswith('!'):
-                    if len(awn) == 1 or not isalpha(awn[1]):
-                        raise OptionValueError('RULES', escape(opt),
-                            escape(awn), message='invalid key \'%s\'' % awn[1])
-                    if awn[1] not in self.permanent_keys:
-                        self.permanent_keys.add(awn[1])
-                    else:
-                        raise OptionValueError('RULES', escape(opt),
-                            escape(awn), message="permanent key duplicate: "
-                                                 "'%s'" % awn[1])
-                    self.insert(0, (type_, pattern, awn))
+            rule = Rule(opt, awn)
+            if awn.startswith('!'):
+                # FIXME: use KeyboardLayout.isalpha
+                isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
+                if len(awn) == 1 or not isalpha(awn[1]):
+                    raise OptionValueError('RULES', escape(opt),
+                        escape(awn), message='invalid key \'%s\'' % awn[1])
+                if awn[1] not in self.permanent_keys:
+                    self.permanent_keys.add(awn[1])
                 else:
-                    self.append((type_, pattern, awn))
-        Log.info('config', 'parsed rules: %s',
-                 str([(t, r.pattern, a) for (t, r, a) in self]))
+                    raise OptionValueError('RULES', escape(opt),
+                        escape(awn), message="permanent key duplicate: "
+                                             "'%s'" % awn[1])
+                self.insert(self.permkey_pos, rule)
+                self.permkey_pos += 1
+            else:
+                self.append(rule)
+        Log.info('config', 'parsed rules: %s', self)
+
+    def __str__(self):
+        return ', '.join(['(%s)' % r for r in self])
 
     def get_awn(self, window):
         """
         Transofrm window instance, class, or name to awn according to the
         rules.  Return class if no rule matches.
         """
-        for ruleno, rule in enumerate(self):
-            type_, regex, awn = rule
-            if type_ == 'instance':
-                name = window.instance
-            elif type_ == 'class':
-                name = window.klass
-            else:
-                name = window.name
-            m = regex.match(name)
-            if m is None or (not regex.pattern and name):
+        for r in self:
+            prop = []
+            for token in r.template:
+                if isinstance(token, int):
+                    if Rule.props[token] == 'class':
+                        prop.append(window.klass)
+                    elif Rule.props[token] == 'title':
+                        prop.append(window.name)
+                    else:               # instance
+                        prop.append(window.instance)
+                else:                   # basestring
+                    prop.append(token)
+            prop = ''.join(prop)
+            m = r.regpat.match(prop)
+            if m is None or (not r.regpat.pattern and prop):
                 continue
-            if not awn:         # ignore the window
+            Log.debug('windows', "matching template: %s - %s",
+                      r.template_str, prop)
+            if not r.awn:         # ignore the window
                 return None
             else:
                 try:
-                    awn = regex.sub(awn, name[:m.end()], 1)
+                    awn = r.regpat.sub(r.awn, prop[:m.end()], 1)
                 except re.error, e:
                     Log.exception('config', '%s: awn = %s ' % (e, awn))
                     return window.klass
