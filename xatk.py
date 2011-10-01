@@ -2275,8 +2275,16 @@ class WindowManager(object):
             if not window.gid:
                 window.gid = self._windows.get_unique_group_id()
             # permanent shortcut
-            if window.awn.startswith('!') and not group:
-                self._add_shortcut(window, window.awn[1])
+            if window.awn.startswith('!'):
+                if not group:           # the first window
+                    self._add_shortcut(window, window.awn[1])
+                else:
+                    # no shortcut for the leader? key is grabbed by someone
+                    # else, so don't add a shortcut
+                    wins = self._windows.get_group_windows(window.gid)
+                    if wins:
+                        if wins[0].shortcut is not None:
+                            self._add_shortcut(window)
             # normal awn
             else:
                 self._add_shortcut(window)
