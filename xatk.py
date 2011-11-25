@@ -1590,14 +1590,15 @@ class Xtool(object):
     @staticmethod
     def get_wm_name():
         """Get window manager name."""
+        wm_name = u''
         reply = Xtool._get_full_property(Xtool._root,
             Xtool._atom('_NET_SUPPORTING_WM_CHECK'), Xatom.WINDOW)
-        wid = reply.value[0]
-        try:
-            wm_name = Xtool.get_window_name(wid)
-        except BadWindow, e:
-            Log.exception('windows', e)
-            wm_name = u''
+        if reply:
+            wid = reply.value[0]
+            try:
+                wm_name = Xtool.get_window_name(wid)
+            except BadWindow, e:
+                Log.exception('windows', e)
         return wm_name
 
     @staticmethod
