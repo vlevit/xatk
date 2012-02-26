@@ -45,15 +45,10 @@ download_wiki(){
 }
 
 create_tarball(){
-    local version="$(./xatk.py --version)"
-    if test $(expr "$version" : ".*\.0") -ne 0; then
-        version="$(expr substr "$version" 1 $(expr length "$version" - 2))"
-    fi
+    local version="$(./xatk --version)"
     local dirname="$(echo "$version" | tr " " "-")"
     cp -R . ../"$dirname"
-    tar -czX scripts/EXCLUDE -C ..\
-    	--transform "s/xatk\.py/xatk/" \
-    	-f ../"$dirname".tar.gz "$dirname"
+    tar -czX scripts/EXCLUDE -C .. -f ../"$dirname".tar.gz "$dirname"
     rm -R ../"$dirname"
 }
 

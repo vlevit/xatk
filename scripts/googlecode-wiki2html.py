@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 # Google Code wiki downloader script
 # Copyright (C) 2011  Vyacheslav Levit

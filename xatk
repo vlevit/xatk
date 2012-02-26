@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 # xatk is a window switcher which assigns keybindings to windows dynamically
 # Copyright (C) 2010-2012 Vyacheslav Levit
@@ -67,7 +67,7 @@ else:
 
 
 PROG_NAME = os.path.basename(sys.argv[0])
-VERSION = (0, 0, 1)
+VERSION = (0, 0, 2)
 CONFIG_PATH = ('~/.xatkrc', '~/.xatk/xatkrc')
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
