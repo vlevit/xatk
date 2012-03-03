@@ -1107,7 +1107,7 @@ class KeyboardLayout(object):
     qwerty = 'qwertyuiopasdfghjkl;zxcvbnm,./'
 
     def __init__(self, layout="QWERTY"):
-        if layout == "DVORAK":
+        if layout == "Dvorak":
             # dvorak layout with 3 rows by 10 characters
             self.keys = self.dvorak
         elif layout == "QWERTY":
