@@ -780,7 +780,7 @@ class Config(object):
         return types
 
     _defaults = {
-        'keyboard_layout': ('QWERTY', ('QWERTY', 'Dvorak')),
+        'keyboard_layout': ('QWERTY', ('QWERTY', 'QWERTZ', 'AZERTY', 'Dvorak')),
         'prefix': ('Super', _parse_prefix),
         'group_windows_by': ('AWN', ('AWN', 'Group', 'None')),
         'title_format': ('%t   /%s/', _parse_title_format),
@@ -811,9 +811,8 @@ class Config(object):
      # List of keys can be obtained with --print-keys option.
 
      [SETTINGS]
-     # Keyboard Layout. This is used to produce keybindings that are easier to
-     # press with your keyboard layout.
-     # Possible values: Dvorak, QWERTY.
+     # Keyboard Layout. This is used to produce suffix keys close to base keys.
+     # Possible values: Dvorak, QWERTY, QWERTZ, AZERTY.
      keyboard_layout = %(keyboard_layout)s
 
      # Keybinding prefix consists of a series of modifiers and/or keys
@@ -1101,10 +1100,16 @@ class KeyboardLayout(object):
     """
     Object holding information about the order of keys of different keboard
     layouts.
+
+    The idea of such definition is totally wrong. Positions of non-alphabetic
+    symbols may differ among different languages of the same layout. We need
+    a more robust way to describe/determine layouts.
     """
 
     dvorak = '\',.pyfgcrlaoeuidhtns;qjkxbmwvz'
     qwerty = 'qwertyuiopasdfghjkl;zxcvbnm,./'
+    qwertz = 'qwertzuiopasdfghjkl;yxcvbnm,.-'
+    azerty = 'azertyuiopqsdfghjklmwxcvbn,;:!'
 
     def __init__(self, layout="QWERTY"):
         if layout == "Dvorak":
@@ -1113,6 +1118,12 @@ class KeyboardLayout(object):
         elif layout == "QWERTY":
             # qwerty layout with 3 rows by 10 characters
             self.keys = self.qwerty
+        elif layout == "QWERTZ":
+            # qwertz layout with 3 rows by 10 characters
+            self.keys = self.qwertz
+        elif layout == "AZERTY":
+            # azerty layout with 3 rows by 10 characters
+            self.keys = self.azerty
         else:
             raise ValueError("Unknown keyboard layout name: %s" %
                              escape(layout))
