@@ -2669,7 +2669,7 @@ def main():
     else:
         pathstr = '%s ' % filepath if options.filepath else ''
         Log.error('config', ("congiguration file %sdoesn't exist. Create "
-                  "it first, e.g. mkdir ~/.xatk && %s --print-defaults > "
+                  "it first: mkdir -p ~/.xatk && %s --print-defaults > "
                   "%s") % (pathstr, PROG_NAME, CONFIG_PATH[1]))
         graceful_exit(1)
 
