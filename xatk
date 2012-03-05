@@ -749,7 +749,7 @@ class Config(object):
         if title_format.count('%t') > 1 or title_format.count('%s') > 1:
             raise OptionValueError("SETTINGS", "title_format",
                 escape(title_format),
-                message="only one occurance of %t or %s is possible")
+                message="only one occurrence of %t or %s is possible")
         return title_format
 
     def _parse_history_length(history_length):
@@ -775,7 +775,7 @@ class Config(object):
                 return []
             if t not in Config.known_window_types:
                 raise OptionValueError("SETTINGS", "window_types", escape(t),
-                    message="unkown window type, window types are %s" %
+                    message="unknown window type, window types are %s" %
                     ', '.join(Config.known_window_types))
         return types
 
@@ -794,8 +794,8 @@ class Config(object):
 
     Format:
     {option: (default_value, (variants) or parse_function or None), ...},
-    where None means that arbitary string is allowed.
-    Enclosing double quotes arround arbitary strings will be stripped.
+    where None means that arbitrary string is allowed.
+    Enclosing double quotes around arbitrary strings will be stripped.
     """
 
     _config_str = re.compile('^ +', re.M).sub('',
@@ -821,27 +821,26 @@ class Config(object):
      prefix = %(prefix)s
 
      # All windows of the same application are grouped. Windows of the same
-     # group are binded to the keys with the same prefix. The following option
-     # specifies what windows should belong to the same group.
+     # group are bound to the keys with the same base. The following option
+     # specifies which windows should belong to the same group.
      # Possible values:
      #  - AWN -- two windows belong to the same group if they have equal awns.
      #  - Group -- group windows as window manager normally does.
      #  - None -- do not group at all.
      group_windows_by = %(group_windows_by)s
 
-     # Change window titles, so they include the corresponding shortcuts.
-     # %%t and %%s are replaced by the window title and the shortcut
-     # accordingly. Only one occurance of %%t or %%s in title_format is
-     # possible. Set to None to deny modifying the window titles.
+     # Put shortcuts in window titles.
+     # %%t and %%s are replaced by window title and shortcut accordingly.
+     # Only one occurrence of %%t and %%s in title_format is allowed.
+     # Set to None not to modify window titles.
      title_format = %(title_format)s
 
-     # What to do if the window which is to be activated is not on the
-     # current desktop.
+     # Action when the window is not on the current desktop.
      # Possible values:
      #  - SwitchDesktop -- switch to the desktop which the window is on.
      #  - MoveWindow -- move the window to the current desktop.
      #  - None -- just activate the window (actual behaviour may differ
-     # with different window managers).
+     # in different window managers).
      desktop_action = %(desktop_action)s
 
      # List of allowed window types.
@@ -849,9 +848,9 @@ class Config(object):
      #   All NORMAL DIALOG UTILITY MENU TOOLBAR DESKTOP DOCK SPLASH
      window_types = NORMAL DIALOG UTILITY MENU
 
-     # History of shortcuts is used to avoid them floating between
+     # History of shortcuts is used to prevent them floating between
      # different windows across the sessions.
-     # Set history_length to 0 to disable the history.
+     # Set history_length to 0 to disable history.
      history_length = %(history_length)s
 
      [HISTORY]
@@ -859,9 +858,9 @@ class Config(object):
      [RULES]
      # This section specifies rules according to which window classes or names
      # (titles) are transformed to abstract window names (AWNs). When a new
-     # window appears the program tries out the rules (from top to bottom)
+     # window appears the program, tries out the rules (from top to bottom)
      # until it founds out one that matches a window property. If no
-     # sutable rule is found the window class will be assigned to the AWN.
+     # suitable rule is found the window class will be assigned to the AWN.
 
      # AWNs are used to determine window shortcuts.  For example, if AWN is
      # 'xterm' than keybinding will more likely 'mod+x'. If it is already
@@ -869,19 +868,19 @@ class Config(object):
      # keybinding to try out will be 'mod+t'. It sorts out the alphabetical
      # characters of AWN until it finds one whose corresponding key is not
      # grabbed. If it turns out there is no such a key, the window will be
-     # binded to any different unused key.
+     # bound to any different unused key.
 
      # Format:
      # property.[regex] = [[!]awn]
      # where property is one of the following: title, class, instance.
 
-     # regex matching is case insensetive. awn may contain backreferences,
+     # regex matching is case insensitive. awn may contain backreferences,
      # e.g. \\1 is replaced with the first group of regex. If awn is omitted
-     # the window will not be binded to any of keys. If regex is omitted it
+     # the window will not be bound to any of keys. If regex is omitted it
      # implies windows without the property or with empty property. Exclamation
      # mark before awn denotes that the shortcut should be permanent. Only the
      # first symbol after ! is used to compose a shortcut. Permanent shortcuts
-     # have a higher priotity than history shortcuts and other rules, and they
+     # have a higher priority than history shortcuts and other rules, and they
      # are never assigned to different windows.
 
      # Examples:
@@ -892,7 +891,7 @@ class Config(object):
      # remove prefix gnome- from window classes
      # class.gnome-(.*) = \\1
 
-     # transorm classes icecat, iceweasel, and icedove to awns cat, weasel, and
+     # transform classes icecat, iceweasel, and icedove to awns cat, weasel, and
      # dove respectively
      # class.ice(cat|weasel|dove) = \\1
 
@@ -902,11 +901,11 @@ class Config(object):
      # always bind emacs window to 'e'
      # class.emacs = !e
 
-     # Instead of the property it is possible to specify a template, which
+     # In place of property a template can be specified. template
      # combines different properties within one rule. With regular expressions
      # it is possible to simulate logical operators.
-     # Ignore utility and dialog windows of GIMP
-     # class and not title.gimp and not (?!gnu.{27,27}$|.*\u2013 gimp$) =
+     # Ignore window with class myclass only if its title isn't mytitle:
+     # class and not title.myclass and not (?!mytitle$) =
      """)
 
 
@@ -2374,7 +2373,7 @@ class WindowManager(object):
         window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
             window.shortcut)
         window.keybinding = kb
-        Log.info(('windows', 'keys'), "window '%s' (id=0x%x) was binded to "
+        Log.info(('windows', 'keys'), "window '%s' (id=0x%x) was bound to "
                  "'%s'", window.awn, window.wid, window.shortcut)
 
     def _update_window_name(self, window, prev_shortcut):
