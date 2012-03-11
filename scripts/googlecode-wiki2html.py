@@ -19,6 +19,7 @@
 
 import sys
 import urllib2
+import re
 from HTMLParser import HTMLParser
 
 
@@ -51,7 +52,7 @@ class WikiParser(HTMLParser):
                 self.enddiv = self.getpos()
 
 
-def page_cleanup(data):
+def page_cleanup(data, project):
     parser = WikiParser()
     parser.feed(data)
     lines = data.splitlines()
@@ -62,7 +63,10 @@ def page_cleanup(data):
     endline, offset = parser.enddiv
     lines = lines[:endline]
     lines[-1] = lines[-1][:offset] + "</div>\n\n\n </body>\n</html>"
-    return '\n'.join(lines)
+    data = '\n'.join(lines)
+    data = re.sub(r'(<a\s+href=)"/p/%s/wiki/([^"]*)">' % project,
+                  r'\1"\2.html">', data)
+    return data
 
 
 def usage():
@@ -81,7 +85,7 @@ def main():
     htmlfile = sys.argv[3] if len(sys.argv) > 2 else '%s.html' % wikipage
     f = urllib2.urlopen(URL % {'project': project, 'wikipage': wikipage})
     data = f.read()
-    data = page_cleanup(data)
+    data = page_cleanup(data, project)
     f = open(htmlfile, 'w')
     f.write(data)
     f.close()
