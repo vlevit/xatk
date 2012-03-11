@@ -858,9 +858,9 @@ class Config(object):
      [RULES]
      # This section specifies rules according to which window classes or names
      # (titles) are transformed to abstract window names (AWNs). When a new
-     # window appears the program, tries out the rules (from top to bottom)
-     # until it founds out one that matches a window property. If no
-     # suitable rule is found the window class will be assigned to the AWN.
+     # window appears, the program tries out the rules (from top to bottom)
+     # until it finds out one that matches the window property. If no
+     # suitable rule is found a window class will be assigned to AWN.
 
      # AWNs are used to determine window shortcuts.  For example, if AWN is
      # 'xterm' than keybinding will more likely 'mod+x'. If it is already
@@ -904,6 +904,7 @@ class Config(object):
      # In place of property a template can be specified. template
      # combines different properties within one rule. With regular expressions
      # it is possible to simulate logical operators.
+
      # Ignore window with class myclass only if its title isn't mytitle:
      # class and not title.myclass and not (?!mytitle$) =
      """)
