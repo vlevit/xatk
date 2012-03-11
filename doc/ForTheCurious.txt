@@ -1,40 +1,3 @@
-xatk dynamically binds windows to keyboard shortcuts, so it is possible to
-reach any window with one or a few keystrokes.
-
-Installation 
-
-xatk is one python file program which doesn't need installation. Just put xatk
-somewhere in your $PATH. To run xatk you should have python >= 2.6 and
-python-xlib installed.
-
-Running 
-
-Before running xatk you may want to change some configuration options. To do
-so, run
-
-xatk --print-defaults > ~/.xatkrc
-
-Then open ~/.xatkrc and make changes. The most important option to remember/
-redefine is prefix which is set to Super by default. This means that all
-keyboard shortcuts will start with Super modifier. You can define any modifier
-you like, or even combination of modifiers and keys. Most other options are for
-fine-tuning and it is not necessary to learn them all just to benefit from
-using xatk. Look at the comment blocks in the default configuration file if you
-want to learn more.
-
-When you get ready with configuration, you can start xatk daemon with the next
-command:
-
-xatk
-
-If no error occurred, you may notice that window titles now contain shortcuts
-which they are bound to. To activate a window you should press a keybinding
-prefix+shortcut.
-
-If you want to exit the program, send SIGTERM to it:
-
-pkill -f xatk
-
 The idea behind xatk 
 
 Most of window switchers are interactive. They provide attributes associated
@@ -42,10 +5,9 @@ with windows (e.g. titles, icons, previews) which we scan first and than choose
 one of them. That works well enough when we deal with a set of applications for
 the first time. However, we regularly use the same applications. So, in most
 cases our wish to switch a window can be expressed like "Show me <my favourite
-<text editor>|<instant messenger>|<web browser>>". One possible solution to
-switch between windows efficiently is to bind regularly used windows to
-keyboard shortcuts with such tools as wmctrl and xbindkeys. However, this
-approach has a few drawbacks:
+text editor>". One possible solution to switch between windows efficiently is
+to bind regularly used windows to keyboard shortcuts with such tools as wmctrl
+and xbindkeys. However, this approach has a few drawbacks:
 
   • switching to the particular window of the program which has more than one
     window is hard if not impossible;
@@ -82,7 +44,7 @@ generated from the awn. This technique results in next xatk's features:
 Windows which belong to the same group have the same base key which is the
 first key of the shortcut.
 
-Keybindings (keyboard shortcuts) 
+Keybindings 
 
 xatk tries to compose keybindings which would be easy to press and predict. If
 a window is alone in the group, then to activate it you have to press a one-key
@@ -99,8 +61,4 @@ windows of the group is cycling through them by pressing a base key repeatedly.
 
 Finally, if you don't like pressing key sequences, you can configure xatk not
 to group windows.
-
-Project status 
-
-xatk should be usable now, but it is not yet ready for release.
 

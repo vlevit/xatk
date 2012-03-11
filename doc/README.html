@@ -1,0 +1,38 @@
+
+
+
+ 
+
+
+
+<html>
+ <head>
+ <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+ <title>README</title>
+ </head>
+ <body>
+ 
+
+
+
+
+<div>
+<table>
+ <tr>
+ 
+ 
+ <td style="vertical-align:top; padding-left:5px">
+ 
+ <div id="wikicontent">
+ <div class="vt" id="wikimaincol">
+ <p><strong>xatk</strong> dynamically binds windows to keyboard shortcuts, so it is possible to reach any window with one or a few keystrokes. </p><h2><a name="Installation"></a>Installation<a href="#Installation" class="section_anchor"></a></h2><p>xatk is a single python file program which doesn&#x27;t require installation. Just put it in any directory defined in the PATH environment variable. To run xatk you should have <a href="http://www.python.org" rel="nofollow">python 2 (&gt;= 2.6)</a> and <a href="http://python-xlib.sourceforge.net/" rel="nofollow">python-xlib</a> installed. </p><h2><a name="Running"></a>Running<a href="#Running" class="section_anchor"></a></h2><p>Before running xatk you may want to change some configuration options. To do so, first create the default configuration file: </p><pre class="prettyprint">mkdir -p ~/.xatk
+xatk --print-defaults &gt; ~/.xatk/xatkrc</pre><p>Then open <tt>~/.xatk/xatkrc</tt> and make changes. The most interesting option is prefix, which is set to Super by default. This means that all keyboard shortcuts will start with Super modifier. You can define any modifier you like, or even combination of modifiers and keys. Most other options are for fine-tuning and it is not necessary to learn them all just to benefit from use of xatk. Look at the comment blocks in the default configuration file if you want to learn more. </p><p>When you get ready with configuration, you can start xatk daemon with the following command: </p><pre class="prettyprint">xatk</pre><p>If no error occurred, you can notice that window titles now contain shortcuts which they are bound to. To activate a window you should press prefix+shortcut. </p><p>If you want to exit the program, send SIGTERM to it: </p><pre class="prettyprint">pkill -f xatk      # this may kill other programs which have xatk in the command line, be careful!</pre><h2><a name="Autostart"></a>Autostart<a href="#Autostart" class="section_anchor"></a></h2><p>Automatic start of xatk can be accomplished in different ways. If you use GDM or KDM, you can add <tt>xatk</tt> to <tt>~/.xprofile</tt>. If you use <tt>startx</tt> or <tt>xinit</tt> you can add <tt>xatk</tt> to <tt>~/.xinitirc</tt> before line <tt>exec window-manager</tt>. Also GNOME, KDE and Xfce have dedicated GUI tools to add programs to startup. </p><p>See also <a href="FAQ.html">FAQ</a>, <a href="Troubleshooting.html">Troubleshooting</a>, <a href="ForTheCurious.html">ForTheCurious</a>, <a href="Roadmap.html">Roadmap</a>. </p>
+ </div>
+ </div>
+ </td><tr>
+</table>
+ </div>
+
+
+ </body>
+</html>
