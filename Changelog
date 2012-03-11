@@ -1,0 +1,27 @@
+.. -*- mode: rst; -*-
+
+xatk 0.1.0 - 11 March 2012
+--------------------------
+
+Features:
+
+ * permanent user-defined shortcuts for specific windows
+ * user-defined list of ignored windows
+ * user-defined list of allowed window types
+ * instance property in rules
+ * user-defined templates in rules
+ * add support for QWERTZ and AZERTY keyboard layouts
+
+Bug fixes:
+
+ * fix python-xlib's get_full_property bug which could lead to crashes
+ * xatk didn't raise windows with activated Num Lock and/or Caps Lock
+ * xatk could not be started before window manager
+ * fix shortcut sort key
+ * it was not possible to specify Dvorak layout
+
+
+xatk 0.0.1 - 07 April 2011
+--------------------------
+
+Initial release
