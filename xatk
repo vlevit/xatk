@@ -67,7 +67,7 @@ else:
 
 
 PROG_NAME = os.path.basename(sys.argv[0])
-VERSION = (0, 0, 2)
+VERSION = (0, 2, -1)
 CONFIG_PATH = ('~/.xatkrc', '~/.xatk/xatkrc')
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
