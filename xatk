@@ -1551,6 +1551,7 @@ class Xtool(object):
     @staticmethod
     def get_window_class(wid):
         win = Xtool._get_window(wid)
+        instance, klass = u'', u''
         prop = None
         try:
             prop = Xtool._get_full_property(win, Xatom.WM_CLASS, Xatom.STRING)
@@ -1558,13 +1559,10 @@ class Xtool(object):
             raise BadWindow(wid)
         if prop:
             parts = prop.value.split('\0')
-            if len(parts) < 2:
-                return (u'', u'')
-            return (parts[0].decode('latin_1', 'ignore_log'),
-                    parts[1].decode('latin_1', 'ignore_log'))
-
-        else:
-            return (u'', u'')
+            instance = parts[0].decode('latin_1', 'ignore_log')
+            if len(parts) > 1:
+                klass = parts[1].decode('latin_1', 'ignore_log')
+        return (instance, klass)
 
     @staticmethod
     def get_window_group_id(wid):
