@@ -941,7 +941,7 @@ class History(OrderedDict):
         """Rewrite a configuration file with the current history."""
         items = []
         for awn in self:
-            if awn != '':
+            if awn.strip() != '':
                 items.insert(0, '%s = %s' % (awn, self[awn]))
         body = '\n'.join(items)
         try:
