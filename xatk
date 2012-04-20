@@ -1012,6 +1012,54 @@ class Rule(object):
             raise OptionValueError("RULES", escape(opt), escape(awn),
                 message="invalid regex: %s: %s" % (e, escape(regex)))
 
+    def get_property(self, window):
+        """Get property string from the rule's template and the specified
+        window."""
+
+        prop = []
+        for token in self.template:
+            if isinstance(token, int):
+                if Rule.props[token] == 'class':
+                    prop.append(window.klass)
+                elif Rule.props[token] == 'title':
+                    prop.append(window.name)
+                else:           # instance
+                    prop.append(window.instance)
+            else:               # basestring
+                prop.append(token)
+        return ''.join(prop)
+
+    def match(self, window):
+        """Does rule matches the specified window?"""
+
+        prop = self.get_property(window)
+        m = self.regpat.match(prop)
+        match = False
+        if m and (self.regpat.pattern or not prop):
+            match = True
+            Log.debug('windows', "matching template: %s - %s",
+                      self.template_str, prop)
+        return match
+
+    def substitute(self, window):
+        """
+        Substitute window properties to form awn.
+
+        Return awn or None if window is not matching or error occurred when
+        substituting.
+        """
+
+        awn = None
+        prop = self.get_property(window)
+        m = self.regpat.match(prop)
+        if m and (self.regpat.pattern or not prop):
+            try:
+                awn = self.regpat.sub(self.awn, prop[:m.end()], 1)
+            except re.error, e:
+                Log.exception('config', '%s: awn = %s ' % (e, self.awn))
+        Log.info('config', 'awn = %s', awn)
+        return awn
+
     def __str__(self):
         return ', '.join([self.template_str, self.regpat.pattern, self.awn])
 
@@ -1057,40 +1105,15 @@ class Rules(list):
     def __str__(self):
         return ', '.join(['(%s)' % r for r in self])
 
-    def get_awn(self, window):
+    def lookup_rule(self, window):
         """
-        Transofrm window instance, class, or name to awn according to the
-        rules.  Return class if no rule matches.
+        Find the first rule which matches the window.
+
+        Return matching Rule instance, or None if not found.
         """
-        for r in self:
-            prop = []
-            for token in r.template:
-                if isinstance(token, int):
-                    if Rule.props[token] == 'class':
-                        prop.append(window.klass)
-                    elif Rule.props[token] == 'title':
-                        prop.append(window.name)
-                    else:               # instance
-                        prop.append(window.instance)
-                else:                   # basestring
-                    prop.append(token)
-            prop = ''.join(prop)
-            m = r.regpat.match(prop)
-            if m is None or (not r.regpat.pattern and prop):
-                continue
-            Log.debug('windows', "matching template: %s - %s",
-                      r.template_str, prop)
-            if not r.awn:         # ignore the window
-                return None
-            else:
-                try:
-                    awn = r.regpat.sub(r.awn, prop[:m.end()], 1)
-                except re.error, e:
-                    Log.exception('config', '%s: awn = %s ' % (e, awn))
-                    return window.klass
-                else:
-                    return awn
-        return window.klass
+        for rule in self:
+            if rule.match(window):
+                return rule
 
     def get_permanent_keys(self):
         return self.permanent_keys
@@ -2299,8 +2322,19 @@ class WindowManager(object):
         except BadWindow, e:
             Log.exception('windows', e)
             return
+        # awn assignment, consider only appropriate window types
         if not self.window_types or window.kind in self.window_types:
-            window.awn = self._rules.get_awn(window)
+            rule = self._rules.lookup_rule(window)
+            if rule:            # rule found?
+                awn = rule.substitute(window)
+                if awn is None:               # bad awn substitution?
+                    window.awn = window.klass # awn is class by default
+                elif awn == '':               # special case:
+                    window.awn = None         # window to be ignored
+                else:
+                    window.awn = awn
+            else:               # if no rule, then assign class
+                window.awn = window.klass
         if window.awn is None:  # ignore the window
             window.gid = self._windows.get_unique_group_id()
         else:
