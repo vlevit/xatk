@@ -49,7 +49,9 @@ import os.path
 import re
 import signal
 import StringIO
+import subprocess
 import sys
+import functools
 from ConfigParser import RawConfigParser
 from UserDict import DictMixin
 
@@ -967,6 +969,7 @@ class Rule(object):
     template_str = None             # remember for debugging
     regpat = None                   # compiled regex pattern
     awn = None
+    command = None
 
     def __init__(self, opt, awn):
         """
@@ -2071,6 +2074,24 @@ class KeyBinder(object):
             Xtool.ungrab_key(kb.keycodes[0], kb.modmask)
             raise GrabError(escape(keybinding))
 
+    def rebind(self, oldkb, newkb):
+        """
+        Rebind old keybinding oldkb to new keybinding newkb.
+
+        It is expected that the keybindings have the same prefix and base
+        key.
+        """
+        kb = self._kblist.find_full(oldkb.keycodes, oldkb.modmask)
+        if not kb:
+            raise ValueError("keybinding %s is not in the list" % oldkb)
+        if newkb.cyclic:
+            kb.cycle = newkb.cycle
+        elif kb.cyclic:
+            del kb.cycle
+        kb.cyclic = newkb.cyclic
+        kb.call = newkb.call
+        return kb
+
     def unbind(self, keybinding):
         kb = keybinding
         self._kblist.remove(kb)
@@ -2188,6 +2209,7 @@ class WindowManager(object):
         self._keybinder = KeyBinder()
         self._windows = WindowList()
         self._init_window_types()
+        self._bind_all_commands()
         for wid in Xtool.get_window_list():
             self._on_window_create(wid)
         Xtool.register_window_list_listener(self)
@@ -2217,20 +2239,58 @@ class WindowManager(object):
             return Xtool.get_window_type_atom('NORMAL')
         return Xtool.get_window_type_atom('DIALOG')
 
-    def _bind(self, wid, shortcut):
+    def _make_run_command_func(self, command):
+        return functools.partial(subprocess.Popen, command, shell=True, cwd='/',
+            stdin=file(os.devnull, 'r'), stdout=file(os.devnull, 'a+'),
+            stderr=file(os.devnull, 'a+', 0), close_fds=True)
+
+    def _make_raise_window_func(self, wid):
         if Config.desktop_action == 'SwitchDesktop':
             action = Xtool.DESKTOP_SWITCH_DESKTOP
         elif Config.desktop_action == 'MoveWindow':
             action = Xtool.DESKTOP_MOVE_WINDOW
         else:
             action = Xtool.DESKTOP_IGNORE
+        return functools.partial(Xtool.raise_window, wid, action)
 
-        def raise_window(wid=wid, action=action):
-            Xtool.raise_window(wid, action)
+    def _bind_window(self, shortcut, wid):
+        raise_window = self._make_raise_window_func(wid)
         kb = Keybinding(Config.prefix + list(shortcut),
                         raise_window, raise_window)
         self._keybinder.bind(kb)
         return kb
+
+    def _bind_command(self, shortcut, command):
+        run_command = self._make_run_command_func(command)
+        kb = Keybinding(Config.prefix + list(shortcut), run_command)
+        self._keybinder.bind(kb)
+        return kb
+
+    def _bind_all_commands(self):
+        for rule in self._rules:
+            if rule.command is not None:
+                try:
+                    self._bind_command(rule.awn[1], rule.command)
+                except GrabError, e:
+                    Log.info('keys', escape(e))
+
+    def _rebind(self, shortcut, wid=None, command=None):
+        """
+        Rebind shortcut from running command to raising window if wid is None
+        and command is not None, and vise versa.
+        """
+        if wid is not None and command is None:
+            raise_window = self._make_raise_window_func(wid)
+            oldkb = Keybinding(Config.prefix + list(shortcut), lambda: None)
+            newkb = Keybinding(Config.prefix + list(shortcut),
+                               raise_window, raise_window)
+        elif wid is None and command is not None:
+            run_command = self._make_run_command_func(command)
+            oldkb = Keybinding(Config.prefix + list(shortcut), lambda: None)
+            newkb = Keybinding(Config.prefix + list(shortcut), run_command)
+        else:
+            raise ValueError
+        return self._keybinder.rebind(oldkb, newkb)
 
     def on_window_list_changed(self):
         old_wids = set([win.wid for win in self._windows])
@@ -2264,23 +2324,30 @@ class WindowManager(object):
         all the other windows of the group.
 
         """
+        # TODO: use rebind() instead of unbind() + bind() when possible
         closed_windows = self._windows.get_windows(wids)
-        group_shotcuts = {}
+        group_shortcuts = {}
         for closed in closed_windows:
             if closed.shortcut is not None:
                 self._keybinder.unbind(closed.keybinding)
-                group_shotcuts[closed.gid] = closed.shortcut[0]
+                group_shortcuts[closed.gid] = closed.shortcut[0]
             self._windows.remove(closed)
             Log.info(('windows'), "window '%s' (id=0x%x) closed " %
                      (closed.name, closed.wid))
         # If the group leader was closed it is needed to rebind all the windows
         # of the group. Simultaneous closing of few leaders is also possible.
         # groups of closed leaders
-        groups = set([w.gid for w in closed_windows
-                      if w.shortcut and len(w.shortcut) == 1])
-        for group in groups:
+        group_leaders = {}
+        for w in closed_windows:
+            if w.shortcut and len(w.shortcut) == 1:
+                group_leaders[w.gid] = w
+        for group in group_leaders:
             group_windows = self._windows.get_group_windows(group)
             if not group_windows:
+                r = self._rules.lookup_rule(group_leaders[group])
+                if r and r.command:
+                    self._bind_command(group_shortcuts[group],
+                                       command=r.command)
                 continue
             # reset window shortcuts
             for w in group_windows:
@@ -2290,10 +2357,10 @@ class WindowManager(object):
                 w.shortcut = None
             # bind the leader manually
             leader = group_windows[0]
-            leader.shortcut = group_shotcuts[group]
+            leader.shortcut = group_shortcuts[group]
             leader.shortcut_sort_key = self._shortgen.shortcut_sort_key(
                 leader.shortcut)
-            leader.keybinding = self._bind(leader.wid, leader.shortcut)
+            leader.keybinding = self._bind_window(leader.shortcut, leader.wid)
             Log.info('keys', 'Rebinding: %s -> %s',
                      leader.prev_shortcut, leader.shortcut)
             self._update_window_name(leader, leader.prev_shortcut)
@@ -2322,10 +2389,12 @@ class WindowManager(object):
         except BadWindow, e:
             Log.exception('windows', e)
             return
+        command = None
         # awn assignment, consider only appropriate window types
         if not self.window_types or window.kind in self.window_types:
             rule = self._rules.lookup_rule(window)
             if rule:            # rule found?
+                command = rule.command
                 awn = rule.substitute(window)
                 if awn is None:               # bad awn substitution?
                     window.awn = window.klass # awn is class by default
@@ -2351,7 +2420,8 @@ class WindowManager(object):
             # permanent shortcut
             if window.awn.startswith('!'):
                 if not group:           # the first window
-                    self._add_shortcut(window, window.awn[1])
+                    rebind = True if command else False
+                    self._add_shortcut(window, window.awn[1], rebind)
                 else:
                     # no shortcut for the leader? key is grabbed by someone
                     # else, so don't add a shortcut
@@ -2372,7 +2442,7 @@ class WindowManager(object):
             Xtool.listen_window_name(window.wid)
         self._windows.append(window)
 
-    def _add_shortcut(self, window, shortcut=None):
+    def _add_shortcut(self, window, shortcut=None, rebind=False):
         """
         Try to bind window to keybinding which corresponds to the shortcut.
 
@@ -2381,7 +2451,7 @@ class WindowManager(object):
         shortcut. If operation isn't successful (e.g. shortcut is already
         grabbed), don't modify the window attributes.
         """
-        if not shortcut:
+        if not rebind and not shortcut:
             while True:
                 shortcut = self._shortgen.new_shortcut(window, self._windows,
                                                        self._history)
@@ -2390,18 +2460,22 @@ class WindowManager(object):
                              'so many windows, so few keys')
                     return
                 try:
-                    kb = self._bind(window.wid, shortcut)
+                    kb = self._bind_window(shortcut, window.wid)
                 except (GrabError, CyclicKeybindingError), e:
                     Log.info('keys', e)
                     self._shortgen.forbid_base(shortcut[0])
                 else:
                     break
-        else:
+        elif not rebind:
             try:
-                kb = self._bind(window.wid, shortcut)
+                kb = self._bind_window(shortcut, window.wid)
             except (GrabError, CyclicKeybindingError), e:
                 Log.info('keys', e)
                 return
+        elif shortcut:
+            kb = self._rebind(shortcut, wid=window.wid)
+        else:
+            raise ValueError("when rebind=True, shortcut must be specified")
         window.shortcut = shortcut
         window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
             window.shortcut)
