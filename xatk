@@ -527,6 +527,33 @@ class OptionValueError(ConfigError):
             raise TypeError("Either values or message must be specified")
 
 
+class RuleOptionValueError(OptionValueError):
+    """Raised when rule in RULES section has invalid format."""
+
+    def __init__(self, prop, regex, awn, command=None,
+                 message=None, msg_only=False):
+        self.prop = prop
+        self.regex = regex
+        self.awn = awn
+        self.command = command
+        self.message = message
+        self.msg_only = msg_only
+
+    def __str__(self):
+        if self.msg_only:
+            msg = self.message
+        else:
+            msg = ("section: RULES, prop: %s, regex: %s, awn: %s" %
+                   (self.prop, self.regex, self.awn))
+            if self.command:
+                msg = '%s, command: %s' % (msg, self.command)
+            if self.message:
+                msg = '%s: %s' % (msg, self.message)
+            else:
+                msg = '%s: %s' % (msg, "invalid rule")
+        return msg
+
+
 class Config(object):
     """Object that reads, parses, and writes a configuration file."""
 
@@ -873,7 +900,7 @@ class Config(object):
      # bound to any different unused key.
 
      # Format:
-     # property.[regex] = [[!]awn]
+     # property.[regex] = [[!]awn [= command]]
      # where property is one of the following: title, class, instance.
 
      # regex matching is case insensitive. awn may contain backreferences,
@@ -883,7 +910,9 @@ class Config(object):
      # mark before awn denotes that the shortcut should be permanent. Only the
      # first symbol after ! is used to compose a shortcut. Permanent shortcuts
      # have a higher priority than history shortcuts and other rules, and they
-     # are never assigned to different windows.
+     # are never assigned to different windows. Rules with permanent shortcuts
+     # may have commands. Command is executed when no window matches the rule.
+     # Commands are executed with /bin/sh.
 
      # Examples:
 
@@ -902,6 +931,9 @@ class Config(object):
 
      # always bind emacs window to 'e'
      # class.emacs = !e
+
+     # run emacs if it is not running yet
+     # class.emacs = !e = emacs
 
      # In place of property a template can be specified. template
      # combines different properties within one rule. With regular expressions
@@ -971,22 +1003,18 @@ class Rule(object):
     awn = None
     command = None
 
-    def __init__(self, opt, awn):
+    def __init__(self, prop, regex, awn, command=None):
         """
-        Initialize Rule values by parsing opt and awn. Raise OptionValueError.
+        Initialize Rule values by parsing prop, and initialising regex, awn and
+        command (optional).  Raise OptionValueError.
         """
-        self.parse(opt, awn)
+        self.parse(prop, regex, awn, command)
 
-    def parse(self, opt, awn):
+    def parse(self, prop, regex, awn, command=None):
         self.awn = awn
-        dotpos = opt.find('.')
-        if dotpos == -1:
-            raise OptionValueError('RULES', escape(opt), escape(awn),
-                                   message="property and regex must "
-                                   "be separated by a dot.")
-        self.template_str = opt[:dotpos]
-        template = [opt[:dotpos]]
-        regex = opt[dotpos+1:]
+        self.command = command
+        self.template_str = prop
+        template = [self.template_str]
         prop_found = False
         for i, prop in enumerate(Rule.props):
             j = 0
@@ -1005,15 +1033,16 @@ class Rule(object):
                             template[j:j] = [token[pos+len(prop):]]
                 j += 1
         if not prop_found:
-            raise OptionValueError('RULES', escape(opt), escape(awn),
-                                   message="template must contain at least "
-                                   "one property: %s" % ', '.join(Rule.props))
+            raise RuleOptionValueError(escape(prop), escape(regex),
+                escape(awn), escape(command),
+                message="template must contain at least one of the following "
+                        "properties: %s" % ', '.join(Rule.props))
         self.template = template
         try:
             self.regpat = re.compile(regex, re.I | re.UNICODE)
         except re.error, e:
-            raise OptionValueError("RULES", escape(opt), escape(awn),
-                message="invalid regex: %s: %s" % (e, escape(regex)))
+            raise RuleOptionValueError(escape(prop), escape(regex),
+                escape(awn), escape(command), message="invalid regex")
 
     def get_property(self, window):
         """Get property string from the rule's template and the specified
@@ -1050,8 +1079,8 @@ class Rule(object):
 
         Return awn or None if window is not matching or error occurred when
         substituting.
-        """
 
+        """
         awn = None
         prop = self.get_property(window)
         m = self.regpat.match(prop)
@@ -1064,7 +1093,8 @@ class Rule(object):
         return awn
 
     def __str__(self):
-        return ', '.join([self.template_str, self.regpat.pattern, self.awn])
+        return ', '.join([self.template_str, self.regpat.pattern,
+                          self.awn, "%s" % self.command])
 
 
 class Rules(list):
@@ -1073,32 +1103,57 @@ class Rules(list):
     permkey_pos = 0              # position of the last permananet key in Rules
     permanent_keys = set()       # permanent keys must be unique
 
+    re_cmd_rule = re.compile(ur"""
+        (?P<prop>.+?)[.]
+        (?P<regex>.*?)\s*[=:]\s*
+        (?P<awn>[!].+?)\s*[=:]\s*
+        (?P<command>.+)
+        """, re.VERBOSE)
+
+    re_rule = re.compile(ur"""
+        (?P<prop>.+?)[.]
+        (?P<regex>.*(?<!\s))\s*[=:]\s*
+        (?P<awn>.*)
+        """, re.VERBOSE)
+
     def parse(self, section):
-        """Read a configuration file and parse RULES section."""
+        """Parse RULES section."""
         self.permanent_keys = set()
         bodylines = section.splitlines()[1:]
         for line in bodylines:
             stripline = line.lstrip()
             if stripline == '' or stripline.startswith('#'):
                 continue
-            # split option and value by LAST = or : as
-            # = or : may be contained in regex
-            h1, s1, t1 = map(unicode.strip, line.rpartition('='))
-            h2, s2, t2 = map(unicode.strip, line.rpartition(':'))
-            opt, awn = (h1, t1) if len(h1) > len(h2) else (h2, t2)
-            rule = Rule(opt, awn)
+            m = self.re_cmd_rule.match(line)
+            if m:
+                prop = m.group('prop')
+                regex = m.group('regex')
+                awn = m.group('awn')
+                command = m.group('command')
+            else:
+                m = self.re_rule.match(line)
+                if m:
+                    prop = m.group('prop')
+                    regex = m.group('regex')
+                    awn = m.group('awn')
+                    command = None
+                else:
+                    raise RuleOptionValueError(None, None, None,
+                        message="invalid rule: %s" % escape(line))
+            rule = Rule(prop, regex, awn, command)
             if awn.startswith('!'):
                 # FIXME: use KeyboardLayout.isalpha
                 isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
                 if len(awn) == 1 or not isalpha(awn[1]):
-                    raise OptionValueError('RULES', escape(opt),
-                        escape(awn), message='invalid key \'%s\'' % awn[1])
+                    raise RuleOptionValueError(escape(prop), escape(regex),
+                        escape(awn), escape(command),
+                        message="invalid key: %s" % escape(awn[1]))
                 if awn[1] not in self.permanent_keys:
                     self.permanent_keys.add(awn[1])
                 else:
-                    raise OptionValueError('RULES', escape(opt),
-                        escape(awn), message="permanent key duplicate: "
-                                             "'%s'" % awn[1])
+                    raise RuleOptionValueError(escape(prop), escape(regex),
+                        escape(awn), escape(command),
+                        message="permanent key duplicate: %s" % escape(awn[1]))
                 self.insert(self.permkey_pos, rule)
                 self.permkey_pos += 1
             else:
