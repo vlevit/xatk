@@ -562,11 +562,9 @@ class History(OrderedDict):
 
     def parse(self, history):
         Log.debug('config', 'parsing history...')
-        # FIXME: use KeyboardLayout.isalpha
-        isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
         history.reverse()
         for item in history:
-            if len(item[1]) == 1 and isalpha(item[1]):
+            if len(item[1]) == 1 and Config.keyboard_layout.isalpha(item[1]):
                 self[item[0]] = item[1]
             else:
                 Log.warning('config', 'shortcut should be a latin '
@@ -751,9 +749,7 @@ class Rules(list):
                         message="invalid rule: %s" % escape(line))
             rule = Rule(prop, regex, awn, command)
             if awn.startswith('!'):
-                # FIXME: use KeyboardLayout.isalpha
-                isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
-                if len(awn) == 1 or not isalpha(awn[1]):
+                if len(awn) == 1 or not Config.keyboard_layout.isalpha(awn[1]):
                     raise RuleOptionValueError(escape(prop), escape(regex),
                         escape(awn), escape(command),
                         message="invalid key: %s" % escape(awn[1]))
@@ -996,12 +992,20 @@ class Config(object):
             else:
                 raise TypeError(type(possible))
 
+    def _parse_keyboard_layout(keyboard_layout):
+        possible = ('QWERTY', 'QWERTZ', 'AZERTY', 'Dvorak')
+        if keyboard_layout not in possible:
+            raise OptionValueError('SETTINGS', 'keyboard_layout',
+                escape(keyboard_layout), possible)
+        else:
+            return KeyboardLayout(keyboard_layout)
+
     def _parse_prefix(prefix):
         mods = prefix.split('+')
         try:
             fake_kb = Keybinding(mods + ['a'], lambda: None)
         except KeybindingError, e:
-            raise OptionValueError("SETTINGS", 'modifiers',
+            raise OptionValueError('SETTINGS', 'modifiers',
                                    escape(prefix),
                                    message=escape(e))
         return fake_kb.modifiers + fake_kb.keys[:-1]
@@ -1042,7 +1046,7 @@ class Config(object):
         return types
 
     _defaults = {
-        'keyboard_layout': ('QWERTY', ('QWERTY', 'QWERTZ', 'AZERTY', 'Dvorak')),
+        'keyboard_layout': ('QWERTY', _parse_keyboard_layout),
         'prefix': ('Super', _parse_prefix),
         'group_windows_by': ('AWN', ('AWN', 'Group', 'None')),
         'title_format': ('%t   /%s/', _parse_title_format),
@@ -1223,27 +1227,25 @@ class ShortcutGenerator(object):
     account windows' and window list's information.
     """
 
-    def __init__(self):
-        self.layout = KeyboardLayout(Config.keyboard_layout)
-
     def _get_direction(self, base):
         """Determine where next suffix key would be from the base key
         Return 1 if to the right, and -1 if to the left"""
-        return 1 if self.layout.indexes[base] % 10 < 5 else -1
+        return 1 if Config.keyboard_layout.indexes[base] % 10 < 5 else -1
 
     def _next_suffix(self, shortcuts):
         """
         Return a new free suffix. shortcuts must have the same base key and
         must be sorted by shortcut_sort_key.
         """
+        layout = Config.keyboard_layout
         base = shortcuts[0][0]
         dir_ = self._get_direction(base)
         suffixes = [s[1] for s in shortcuts if len(s) == 2]
         if not suffixes:                # first shortcut with suffix
-            return self.layout.keys[self.layout.indexes[base] + dir_]
-        suffix_indexes = [self.layout.indexes[s] for s in suffixes]
+            return layout.keys[layout.indexes[base] + dir_]
+        suffix_indexes = [layout.indexes[s] for s in suffixes]
         # get last suffix index
-        first_index = self.layout.indexes[suffixes[0]]
+        first_index = layout.indexes[suffixes[0]]
         left_indexes = [i for i in suffix_indexes if i < first_index]
         right_indexes = [i for i in suffix_indexes if i > first_index]
         if dir_ == 1:                   # move right
@@ -1260,20 +1262,21 @@ class ShortcutGenerator(object):
                 last_index = min(left_indexes)
             else:                       # only one suffix
                 last_index = first_index
-        next_index = (last_index + dir_) % len(self.layout.keys)
-        next_suffix = self.layout.keys[next_index]
+        next_index = (last_index + dir_) % len(layout.keys)
+        next_suffix = layout.keys[next_index]
         if next_suffix == base:         # all suffixes are over
             return None
         else:
             return next_suffix
 
     def _new_base(self, name, bases):
+        layout = Config.keyboard_layout
         for base in name:
-            if base not in bases and self.layout.isalpha(base):
+            if base not in bases and layout.isalpha(base):
                 return base
-        free_bases = set(self.layout.keys).symmetric_difference(bases)
+        free_bases = set(layout.keys).symmetric_difference(bases)
         for base in free_bases:
-            if self.layout.isalpha(base):
+            if layout.isalpha(base):
                 return base
         return None                     # all the bases are overed
 
@@ -1317,15 +1320,15 @@ class ShortcutGenerator(object):
     def shortcut_sort_key(self, shortcut):
         b = shortcut[0]
         keys = []
-        bi = self.layout.indexes[b]
+        bi = Config.keyboard_layout.indexes[b]
         keys.append(bi)
         if len(shortcut) > 1:
             s = shortcut[1]
-            si = self.layout.indexes[s]
+            si = Config.keyboard_layout.indexes[s]
             dir_ = self._get_direction(b)
             res = dir_ * (si - bi)
             if dir_ * si < dir_ * bi:
-                res += len(self.layout.indexes)
+                res += len(Config.keyboard_layout.indexes)
             keys.append(res)
         return keys
 
