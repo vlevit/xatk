@@ -554,10 +554,244 @@ class RuleOptionValueError(OptionValueError):
         return msg
 
 
+class History(OrderedDict):
+    """
+    Extend OrderedDict. Contain (awn, key) pairs. Number of these pairs is
+    controlled by `Config.history_length` value.
+    """
+
+    def parse(self, history):
+        Log.debug('config', 'parsing history...')
+        # FIXME: use KeyboardLayout.isalpha
+        isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
+        history.reverse()
+        for item in history:
+            if len(item[1]) == 1 and isalpha(item[1]):
+                self[item[0]] = item[1]
+            else:
+                Log.warning('config', 'shortcut should be a latin '
+                            "alphabetical character: '%s', ignored", item[1])
+        self.truncate()
+        Log.info('config', 'parsed history: %s', str(self))
+
+    def update_item(self, awn, base_key):
+        """Update history with a new window or its new base key."""
+        if awn in self:
+            del self[awn]
+        self[awn] = base_key
+        self.truncate()
+
+    def write(self):
+        """Rewrite a configuration file with the current history."""
+        items = []
+        for awn in self:
+            if awn.strip() != '':
+                items.insert(0, '%s = %s' % (awn, self[awn]))
+        body = '\n'.join(items)
+        try:
+            Config.write_section(u'HISTORY', body)
+        except (IOError, OSError, MissingSectionError), e:
+            Log.exception('config',
+                          'when writing the history: %s' % e)
+        else:
+            Log.info('config', 'history written: %s' % str(self))
+
+    def truncate(self):
+        """Leave `Config.history_length` last entries in the history."""
+        for i in range(len(self) - Config.history_length):
+            self.popitem(last=False)
+
+
+class Rule(object):
+    """Represent a mapping of window properties to awn."""
+
+    props = ['instance', 'class', 'title']
+
+    template = None                 # list of strings and indexes of Rule.props
+    template_str = None             # remember for debugging
+    regpat = None                   # compiled regex pattern
+    awn = None
+    command = None
+
+    def __init__(self, prop, regex, awn, command=None):
+        """
+        Initialize Rule values by parsing prop, and initialising regex, awn and
+        command (optional).  Raise OptionValueError.
+        """
+        self.parse(prop, regex, awn, command)
+
+    def parse(self, prop, regex, awn, command=None):
+        self.awn = awn
+        self.command = command
+        self.template_str = prop
+        template = [self.template_str]
+        prop_found = False
+        for i, prop in enumerate(Rule.props):
+            j = 0
+            while j != len(template):
+                token = template[j]
+                if isinstance(token, basestring):
+                    pos = token.find(prop)
+                    if pos != -1:
+                        prop_found = True
+                        if pos != 0:
+                            template[j:j] = [token[:pos]]
+                            j += 1
+                        template[j] = i
+                        if len(token) != pos + len(prop):
+                            j += 1
+                            template[j:j] = [token[pos+len(prop):]]
+                j += 1
+        if not prop_found:
+            raise RuleOptionValueError(escape(prop), escape(regex),
+                escape(awn), escape(command),
+                message="template must contain at least one of the following "
+                        "properties: %s" % ', '.join(Rule.props))
+        self.template = template
+        try:
+            self.regpat = re.compile(regex, re.I | re.UNICODE)
+        except re.error, e:
+            raise RuleOptionValueError(escape(prop), escape(regex),
+                escape(awn), escape(command), message="invalid regex")
+
+    def get_property(self, window):
+        """Get property string from the rule's template and the specified
+        window."""
+
+        prop = []
+        for token in self.template:
+            if isinstance(token, int):
+                if Rule.props[token] == 'class':
+                    prop.append(window.klass)
+                elif Rule.props[token] == 'title':
+                    prop.append(window.name)
+                else:           # instance
+                    prop.append(window.instance)
+            else:               # basestring
+                prop.append(token)
+        return ''.join(prop)
+
+    def match(self, window):
+        """Does rule matches the specified window?"""
+
+        prop = self.get_property(window)
+        m = self.regpat.match(prop)
+        match = False
+        if m and (self.regpat.pattern or not prop):
+            match = True
+            Log.debug('windows', "matching template: %s - %s",
+                      self.template_str, prop)
+        return match
+
+    def substitute(self, window):
+        """
+        Substitute window properties to form awn.
+
+        Return awn or None if window is not matching or error occurred when
+        substituting.
+
+        """
+        awn = None
+        prop = self.get_property(window)
+        m = self.regpat.match(prop)
+        if m and (self.regpat.pattern or not prop):
+            try:
+                awn = self.regpat.sub(self.awn, prop[:m.end()], 1)
+            except re.error, e:
+                Log.exception('config', '%s: awn = %s ' % (e, self.awn))
+        return awn
+
+    def __str__(self):
+        return ', '.join([self.template_str, self.regpat.pattern,
+                          self.awn, "%s" % self.command])
+
+
+class Rules(list):
+    """Extend list. Contain list of Rule objects."""
+
+    permkey_pos = 0              # position of the last permananet key in Rules
+    permanent_keys = set()       # permanent keys must be unique
+
+    re_cmd_rule = re.compile(ur"""
+        (?P<prop>.+?)[.]
+        (?P<regex>.*?)\s*[=:]\s*
+        (?P<awn>[!].+?)\s*[=:]\s*
+        (?P<command>.+)
+        """, re.VERBOSE)
+
+    re_rule = re.compile(ur"""
+        (?P<prop>.+?)[.]
+        (?P<regex>.*(?<!\s))\s*[=:]\s*
+        (?P<awn>.*)
+        """, re.VERBOSE)
+
+    def parse(self, section):
+        """Parse RULES section."""
+        self.permanent_keys = set()
+        bodylines = section.splitlines()[1:]
+        for line in bodylines:
+            stripline = line.lstrip()
+            if stripline == '' or stripline.startswith('#'):
+                continue
+            m = self.re_cmd_rule.match(line)
+            if m:
+                prop = m.group('prop')
+                regex = m.group('regex')
+                awn = m.group('awn')
+                command = m.group('command')
+            else:
+                m = self.re_rule.match(line)
+                if m:
+                    prop = m.group('prop')
+                    regex = m.group('regex')
+                    awn = m.group('awn')
+                    command = None
+                else:
+                    raise RuleOptionValueError(None, None, None,
+                        message="invalid rule: %s" % escape(line))
+            rule = Rule(prop, regex, awn, command)
+            if awn.startswith('!'):
+                # FIXME: use KeyboardLayout.isalpha
+                isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
+                if len(awn) == 1 or not isalpha(awn[1]):
+                    raise RuleOptionValueError(escape(prop), escape(regex),
+                        escape(awn), escape(command),
+                        message="invalid key: %s" % escape(awn[1]))
+                if awn[1] not in self.permanent_keys:
+                    self.permanent_keys.add(awn[1])
+                else:
+                    raise RuleOptionValueError(escape(prop), escape(regex),
+                        escape(awn), escape(command),
+                        message="permanent key duplicate: %s" % escape(awn[1]))
+                self.insert(self.permkey_pos, rule)
+                self.permkey_pos += 1
+            else:
+                self.append(rule)
+        Log.info('config', 'parsed rules: %s', self)
+
+    def __str__(self):
+        return ', '.join(['(%s)' % r for r in self])
+
+    def lookup_rule(self, window):
+        """
+        Find the first rule which matches the window.
+
+        Return matching Rule instance, or None if not found.
+        """
+        for rule in self:
+            if rule.match(window):
+                return rule
+
+    def get_permanent_keys(self):
+        return self.permanent_keys
+
+
 class Config(object):
     """Object that reads, parses, and writes a configuration file."""
 
     _path = None
+    rules = Rules()
+    history = History()
 
     @staticmethod
     def set_path(path):
@@ -599,11 +833,10 @@ class Config(object):
         return Config._config_str % Config._get_defaults()
 
     @staticmethod
-    def parse(rules, history):
+    def parse():
         """
         Parse the configuration file, assign option values to the
-        corresponding `Config` attributes. Call `parse()` methods of
-        `rules` and `history` objects at the end.
+        corresponding `Config` attributes. Parse rules and history.
         """
         try:
             f = open(Config.get_path())
@@ -647,12 +880,12 @@ class Config(object):
                 Log.warning('config', 'missing section SETTINGS')
             if config.has_section('RULES'):
                 start, end = Config.find_section('RULES', uconf)
-                rules.parse(uconf[start:end])
+                Config.rules.parse(uconf[start:end])
             else:
                 Log.warning('config', 'missing section RULES')
             if Config.history_length != 0:
                 if config.has_section('HISTORY'):
-                    history.parse(config.items('HISTORY'))
+                   Config.history.parse(config.items('HISTORY'))
                 else:
                     Log.warning('config', 'missing section HISTORY')
 
@@ -944,238 +1177,6 @@ class Config(object):
      """)
 
 
-class History(OrderedDict):
-    """
-    Extend OrderedDict. Contain (awn, key) pairs. Number of these pairs is
-    controlled by `Config.history_length` value.
-    """
-
-    def parse(self, history):
-        Log.debug('config', 'parsing history...')
-        # FIXME: use KeyboardLayout.isalpha
-        isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
-        history.reverse()
-        for item in history:
-            if len(item[1]) == 1 and isalpha(item[1]):
-                self[item[0]] = item[1]
-            else:
-                Log.warning('config', 'shortcut should be a latin '
-                            "alphabetical character: '%s', ignored", item[1])
-        self.truncate()
-        Log.info('config', 'parsed history: %s', str(self))
-
-    def update_item(self, awn, base_key):
-        """Update history with a new window or its new base key."""
-        if awn in self:
-            del self[awn]
-        self[awn] = base_key
-        self.truncate()
-
-    def write(self):
-        """Rewrite a configuration file with the current history."""
-        items = []
-        for awn in self:
-            if awn.strip() != '':
-                items.insert(0, '%s = %s' % (awn, self[awn]))
-        body = '\n'.join(items)
-        try:
-            Config.write_section(u'HISTORY', body)
-        except (IOError, OSError, MissingSectionError), e:
-            Log.exception('config',
-                          'when writing the history: %s' % e)
-        else:
-            Log.info('config', 'history written: %s' % str(self))
-
-    def truncate(self):
-        """Leave `Config.history_length` last entries in the history."""
-        for i in range(len(self) - Config.history_length):
-            self.popitem(last=False)
-
-
-class Rule(object):
-    """Represent a mapping of window properties to awn."""
-
-    props = ['instance', 'class', 'title']
-
-    template = None                 # list of strings and indexes of Rule.props
-    template_str = None             # remember for debugging
-    regpat = None                   # compiled regex pattern
-    awn = None
-    command = None
-
-    def __init__(self, prop, regex, awn, command=None):
-        """
-        Initialize Rule values by parsing prop, and initialising regex, awn and
-        command (optional).  Raise OptionValueError.
-        """
-        self.parse(prop, regex, awn, command)
-
-    def parse(self, prop, regex, awn, command=None):
-        self.awn = awn
-        self.command = command
-        self.template_str = prop
-        template = [self.template_str]
-        prop_found = False
-        for i, prop in enumerate(Rule.props):
-            j = 0
-            while j != len(template):
-                token = template[j]
-                if isinstance(token, basestring):
-                    pos = token.find(prop)
-                    if pos != -1:
-                        prop_found = True
-                        if pos != 0:
-                            template[j:j] = [token[:pos]]
-                            j += 1
-                        template[j] = i
-                        if len(token) != pos + len(prop):
-                            j += 1
-                            template[j:j] = [token[pos+len(prop):]]
-                j += 1
-        if not prop_found:
-            raise RuleOptionValueError(escape(prop), escape(regex),
-                escape(awn), escape(command),
-                message="template must contain at least one of the following "
-                        "properties: %s" % ', '.join(Rule.props))
-        self.template = template
-        try:
-            self.regpat = re.compile(regex, re.I | re.UNICODE)
-        except re.error, e:
-            raise RuleOptionValueError(escape(prop), escape(regex),
-                escape(awn), escape(command), message="invalid regex")
-
-    def get_property(self, window):
-        """Get property string from the rule's template and the specified
-        window."""
-
-        prop = []
-        for token in self.template:
-            if isinstance(token, int):
-                if Rule.props[token] == 'class':
-                    prop.append(window.klass)
-                elif Rule.props[token] == 'title':
-                    prop.append(window.name)
-                else:           # instance
-                    prop.append(window.instance)
-            else:               # basestring
-                prop.append(token)
-        return ''.join(prop)
-
-    def match(self, window):
-        """Does rule matches the specified window?"""
-
-        prop = self.get_property(window)
-        m = self.regpat.match(prop)
-        match = False
-        if m and (self.regpat.pattern or not prop):
-            match = True
-            Log.debug('windows', "matching template: %s - %s",
-                      self.template_str, prop)
-        return match
-
-    def substitute(self, window):
-        """
-        Substitute window properties to form awn.
-
-        Return awn or None if window is not matching or error occurred when
-        substituting.
-
-        """
-        awn = None
-        prop = self.get_property(window)
-        m = self.regpat.match(prop)
-        if m and (self.regpat.pattern or not prop):
-            try:
-                awn = self.regpat.sub(self.awn, prop[:m.end()], 1)
-            except re.error, e:
-                Log.exception('config', '%s: awn = %s ' % (e, self.awn))
-        return awn
-
-    def __str__(self):
-        return ', '.join([self.template_str, self.regpat.pattern,
-                          self.awn, "%s" % self.command])
-
-
-class Rules(list):
-    """Extend list. Contain list of Rule objects."""
-
-    permkey_pos = 0              # position of the last permananet key in Rules
-    permanent_keys = set()       # permanent keys must be unique
-
-    re_cmd_rule = re.compile(ur"""
-        (?P<prop>.+?)[.]
-        (?P<regex>.*?)\s*[=:]\s*
-        (?P<awn>[!].+?)\s*[=:]\s*
-        (?P<command>.+)
-        """, re.VERBOSE)
-
-    re_rule = re.compile(ur"""
-        (?P<prop>.+?)[.]
-        (?P<regex>.*(?<!\s))\s*[=:]\s*
-        (?P<awn>.*)
-        """, re.VERBOSE)
-
-    def parse(self, section):
-        """Parse RULES section."""
-        self.permanent_keys = set()
-        bodylines = section.splitlines()[1:]
-        for line in bodylines:
-            stripline = line.lstrip()
-            if stripline == '' or stripline.startswith('#'):
-                continue
-            m = self.re_cmd_rule.match(line)
-            if m:
-                prop = m.group('prop')
-                regex = m.group('regex')
-                awn = m.group('awn')
-                command = m.group('command')
-            else:
-                m = self.re_rule.match(line)
-                if m:
-                    prop = m.group('prop')
-                    regex = m.group('regex')
-                    awn = m.group('awn')
-                    command = None
-                else:
-                    raise RuleOptionValueError(None, None, None,
-                        message="invalid rule: %s" % escape(line))
-            rule = Rule(prop, regex, awn, command)
-            if awn.startswith('!'):
-                # FIXME: use KeyboardLayout.isalpha
-                isalpha = lambda char: ord('a') <= ord(char) <= ord('z')
-                if len(awn) == 1 or not isalpha(awn[1]):
-                    raise RuleOptionValueError(escape(prop), escape(regex),
-                        escape(awn), escape(command),
-                        message="invalid key: %s" % escape(awn[1]))
-                if awn[1] not in self.permanent_keys:
-                    self.permanent_keys.add(awn[1])
-                else:
-                    raise RuleOptionValueError(escape(prop), escape(regex),
-                        escape(awn), escape(command),
-                        message="permanent key duplicate: %s" % escape(awn[1]))
-                self.insert(self.permkey_pos, rule)
-                self.permkey_pos += 1
-            else:
-                self.append(rule)
-        Log.info('config', 'parsed rules: %s', self)
-
-    def __str__(self):
-        return ', '.join(['(%s)' % r for r in self])
-
-    def lookup_rule(self, window):
-        """
-        Find the first rule which matches the window.
-
-        Return matching Rule instance, or None if not found.
-        """
-        for rule in self:
-            if rule.match(window):
-                return rule
-
-    def get_permanent_keys(self):
-        return self.permanent_keys
-
-
 class KeyboardLayout(object):
     """
     Object holding information about the order of keys of different keboard
@@ -1285,7 +1286,7 @@ class ShortcutGenerator(object):
         """
         self._forbidden_bases.add(base)
 
-    def new_shortcut(self, window, window_list, history):
+    def new_shortcut(self, window, window_list):
         """Return a new shortcut generated for `window`.
 
         Return None if no new shortcut is possible. `wid` and `gid` attributes
@@ -1294,12 +1295,12 @@ class ShortcutGenerator(object):
         shortcuts = window_list.get_group_shortcuts(window.gid)
         if not shortcuts:               # first shortcut for the group
             allbases = window_list.get_all_bases().union(self._forbidden_bases)
-            if window.awn in history:
-                base = history[window.awn]
+            if window.awn in Config.history:
+                base = Config.history[window.awn]
                 if base not in allbases:
                     return base
             # prefer shortcuts not present in the history
-            bases = allbases.union(set(history.values()))
+            bases = allbases.union(set(Config.history.values()))
             base = self._new_base(window.awn, bases)
             if base is not None:
                 return base
@@ -2251,10 +2252,9 @@ class KeyListener(object):
 
 class KeybindingManager(object):
 
-    def __init__(self, rules):
-        self._rules = rules
+    def __init__(self):
         self._shortgen = ShortcutGenerator()
-        map(self._shortgen.forbid_base, rules.get_permanent_keys())
+        map(self._shortgen.forbid_base, Config.rules.get_permanent_keys())
         self._keybinder = KeyBinder()
 
     def _make_run_command_func(self, command):
@@ -2291,7 +2291,7 @@ class KeybindingManager(object):
         return kb
 
     def bind_all_commands(self):
-        for rule in self._rules:
+        for rule in Config.rules:
             if rule.command is not None:
                 try:
                     self.bind_command(rule.awn[1], rule.command)
@@ -2320,7 +2320,7 @@ class KeybindingManager(object):
         newkb = Keybinding(Config.prefix + list(shortcut), run_command)
         return self._keybinder.rebind(oldkb, newkb)
 
-    def pickup_shortcut(self, window, windows, history):
+    def pickup_shortcut(self, window, windows):
         """
         Pick up shortcut with ungrabbed key and bind window to it.
 
@@ -2328,7 +2328,7 @@ class KeybindingManager(object):
         (all shortcuts are already grabbed), don't modify window attributes.
         """
         while True:
-            shortcut = self._shortgen.new_shortcut(window, windows, history)
+            shortcut = self._shortgen.new_shortcut(window, windows)
             if not shortcut:
                 Log.info(('windows', 'keys'), 'so many windows, so few keys')
                 return
@@ -2371,10 +2371,8 @@ class WindowManager(object):
     `WindowManager` tracks changes of the window list and window names.
     """
 
-    def __init__(self, rules, history):
-        self._rules = rules
-        self._history = history
-        self._keyman = KeybindingManager(rules)
+    def __init__(self):
+        self._keyman = KeybindingManager()
         self._windows = WindowList()
         self._init_window_types()
         self._keyman.bind_all_commands()
@@ -2459,7 +2457,7 @@ class WindowManager(object):
         for group in group_leaders:
             group_windows = self._windows.get_group_windows(group)
             if not group_windows:
-                r = self._rules.lookup_rule(group_leaders[group])
+                r = Config.rules.lookup_rule(group_leaders[group])
                 if r and r.command:
                     self._keyman.bind_command(group_shortcuts[group],
                                               command=r.command)
@@ -2479,7 +2477,7 @@ class WindowManager(object):
             del leader.prev_shortcut
             # bind other windows with pickup_shortcut
             for w in group_windows[1:]:
-                self._keyman.pickup_shortcut(w, self._windows, self._history)
+                self._keyman.pickup_shortcut(w, self._windows)
                 Log.info('keys', 'Rebinding: %s -> %s',
                          w.prev_shortcut, w.shortcut)
                 self._update_window_name(w, w.prev_shortcut)
@@ -2504,7 +2502,7 @@ class WindowManager(object):
         command = None
         # awn assignment, consider only appropriate window types
         if not self.window_types or window.kind in self.window_types:
-            rule = self._rules.lookup_rule(window)
+            rule = Config.rules.lookup_rule(window)
             if rule:            # rule found?
                 command = rule.command
                 awn = rule.substitute(window)
@@ -2542,16 +2540,15 @@ class WindowManager(object):
                     wins = self._windows.get_group_windows(window.gid)
                     if wins:
                         if wins[0].shortcut is not None:
-                            self._keyman.pickup_shortcut(window, self._windows,
-                                                         self._history)
+                            self._keyman.pickup_shortcut(window, self._windows)
             # normal awn
             else:
-                self._keyman.pickup_shortcut(window, self._windows, self._history)
+                self._keyman.pickup_shortcut(window, self._windows)
         Log.info('windows', 'new window attributes: %s' % window)
         if window.shortcut is not None:
             if (not window.awn.startswith('!') and
                 window.awn not in self._windows.get_all_awns()):
-                self._history.update_item(window.awn, window.shortcut[0])
+                Config.history.update_item(window.awn, window.shortcut[0])
             self._update_window_name(window, window.shortcut)
         if window.awn is not None:
             Xtool.listen_window_name(window.wid)
@@ -2592,37 +2589,34 @@ class SignalHandler:
     when recieving signals.
     """
 
-    history = None
-
     @staticmethod
     def graceful_exit_handler(sig, frame):
         """Handle graceful exit of the program."""
         Log.info('signals', 'signal recieved: %i', sig)
-        graceful_exit(history=SignalHandler.history)
+        graceful_exit(history=True)
 
     @staticmethod
     def save_histoy_handler(sig, frame):
         """Save the current history to the configuration file."""
         try:
-            SignalHandler.history.write()
+            Config.history.write()
         except (IOError, OSError, MissingSectionError), e:
             Log.exception('config', e)
 
     @staticmethod
-    def handle_all(history=None):
+    def handle_all(history=False):
         """Handle all the signals defined in `SignalHandler` class"""
-        SignalHandler.history = history
         signal.signal(signal.SIGTERM, SignalHandler.graceful_exit_handler)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
-        if SignalHandler.history is not None:
+        if history:
             signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
 
 
-def graceful_exit(exit_code=0, history=None):
-    """Write history if given, shutdown logging, and exit."""
+def graceful_exit(exit_code=0, history=False):
+    """Write history (if it's True), shutdown logging, and exit."""
     if history:
         try:
-            history.write()
+            Config.history.write()
         except (IOError, OSError, MissingSectionError), e:
             Log.exception('config', e)
     logging.shutdown()
@@ -2834,15 +2828,13 @@ def main():
             sys.stdout.stdbackup.write('%s\n' % key)
         graceful_exit()
 
-    rules = Rules()
-    history = History()
     if options.filepath is not None:
         Config.set_path(options.filepath)
     Config.use_defaults()
     filepath = Config.get_path()
     if filepath and os.path.exists(filepath):
         try:
-            Config.parse(rules, history)
+            Config.parse()
         except ConfigError, e:
             Log.exception('config', e)
             graceful_exit(1)
@@ -2862,13 +2854,13 @@ def main():
             Log.capture_stdout()
             Log.removeHandler()
 
-    WindowManager(rules, history)       # everything starts here
-    SignalHandler.handle_all(history)
+    WindowManager()                     # everything starts here
+    SignalHandler.handle_all(history=True)
     try:
         Xtool.event_loop()              # and continues here
     except ConnectionClosedError, e:
         Log.exception('X', e)
-        graceful_exit(1, history)
+        graceful_exit(1, history=True)
 
 
 if __name__ == "__main__":
