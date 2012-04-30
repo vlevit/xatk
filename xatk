@@ -2307,7 +2307,11 @@ class KeybindingManager(object):
         except CyclicKeybindingError, e:
             Log.info('keys', e)
             return
-        kb = self._keybinder.rebind(oldkb, newkb)
+        try:
+            kb = self._keybinder.rebind(oldkb, newkb)
+        except ValueError, e:
+            Log.debug('keys', "can't rebind %s, it was not binded", oldkb)
+            return
         window.shortcut = shortcut
         window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
             window.shortcut)
@@ -2318,7 +2322,13 @@ class KeybindingManager(object):
         run_command = self._make_run_command_func(command)
         oldkb = Keybinding(Config.prefix + list(shortcut), lambda: None)
         newkb = Keybinding(Config.prefix + list(shortcut), run_command)
-        return self._keybinder.rebind(oldkb, newkb)
+        try:
+            kb = self._keybinder.rebind(oldkb, newkb)
+        except ValueError, e:
+            Log.debug('keys', "can't rebind %s, it was not binded", oldkb)
+            return
+        return kb
+
 
     def pickup_shortcut(self, window, windows):
         """
