@@ -2301,8 +2301,12 @@ class KeybindingManager(object):
     def rebind_to_window(self, shortcut, window):
         raise_window = self._make_raise_window_func(window.wid)
         oldkb = Keybinding(Config.prefix + list(shortcut), lambda: None)
-        newkb = Keybinding(Config.prefix + list(shortcut),
-                           raise_window, raise_window)
+        try:
+            newkb = Keybinding(Config.prefix + list(shortcut),
+                               raise_window, raise_window)
+        except CyclicKeybindingError, e:
+            Log.info('keys', e)
+            return
         kb = self._keybinder.rebind(oldkb, newkb)
         window.shortcut = shortcut
         window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
