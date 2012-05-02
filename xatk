@@ -2430,6 +2430,44 @@ class WindowManager(object):
             return Xtool.get_window_type_atom('NORMAL')
         return Xtool.get_window_type_atom('DIALOG')
 
+    def _get_awn(self, window):
+        rule = Config.rules.lookup_rule(window)
+        if rule:            # rule found?
+            command = rule.command
+            awn = rule.substitute(window)
+            if awn is None:               # bad awn substitution?
+                awn = window.klass        # awn is class by default
+            elif awn == '':               # special case:
+                awn = None                # window to be ignored
+        else:                   # if no rule, then assign class
+            awn = window.klass
+        return awn
+
+    def _get_group(self, window):
+        gid = 0
+        if window.awn is None:
+            gid = 0
+        elif Config.group_windows_by == 'Group':
+            gid = Xtool.get_window_group_id(wid)
+        elif Config.group_windows_by == 'AWN':
+            gid = self._windows.get_group_id(window.awn)
+        if not gid:
+            gid = self._windows.get_unique_group_id()
+        return gid
+
+    def _add_shortcut(self, window):
+        """Add shortcut, shortcut_sort_key and keybinding attributes to window"""
+        if window.awn.startswith('!'):                     # permanent shortcut
+            if not self._windows.get_group_id(window.awn): # the first window
+                self._keyman.try_shortcut(window.awn[1], window)
+            else:
+                # no shortcut for the leader => key is grabbed by someone else
+                wins = self._windows.get_group_windows(window.gid)
+                if wins and wins[0].shortcut is not None:
+                    self._keyman.pickup_shortcut(window, self._windows)
+        else:                   # normal awn
+            self._keyman.pickup_shortcut(window, self._windows)
+
     def on_window_list_changed(self):
         old_wids = set([win.wid for win in self._windows])
         current_wids = set(Xtool.get_window_list())
@@ -2488,7 +2526,6 @@ class WindowManager(object):
         """
         window = Window()
         window.wid = wid
-        window.gid = 0
         try:
             window.name = Xtool.get_window_name(wid)
             window.instance, window.klass = Xtool.get_window_class(wid)
@@ -2496,48 +2533,12 @@ class WindowManager(object):
         except BadWindow, e:
             Log.exception('windows', e)
             return
-        command = None
-        # awn assignment, consider only appropriate window types
+        # consider only appropriate window types
         if not self.window_types or window.kind in self.window_types:
-            rule = Config.rules.lookup_rule(window)
-            if rule:            # rule found?
-                command = rule.command
-                awn = rule.substitute(window)
-                if awn is None:               # bad awn substitution?
-                    window.awn = window.klass # awn is class by default
-                elif awn == '':               # special case:
-                    window.awn = None         # window to be ignored
-                else:
-                    window.awn = awn
-            else:               # if no rule, then assign class
-                window.awn = window.klass
-        if window.awn is None:  # ignore the window
-            window.gid = self._windows.get_unique_group_id()
-        else:
-            # window grouping
-            group = self._windows.get_group_id(window.awn)
-            if Config.group_windows_by == 'Group':
-                window.gid = Xtool.get_window_group_id(wid)
-            elif Config.group_windows_by == 'AWN':
-                window.gid = group
-            else:
-                window.gid = self._windows.get_unique_group_id()
-            if not window.gid:
-                window.gid = self._windows.get_unique_group_id()
-            # permanent shortcut
-            if window.awn.startswith('!'):
-                if not group:           # the first window
-                    self._keyman.try_shortcut(window.awn[1], window)
-                else:
-                    # no shortcut for the leader? key is grabbed by someone
-                    # else, so don't add a shortcut
-                    wins = self._windows.get_group_windows(window.gid)
-                    if wins:
-                        if wins[0].shortcut is not None:
-                            self._keyman.pickup_shortcut(window, self._windows)
-            # normal awn
-            else:
-                self._keyman.pickup_shortcut(window, self._windows)
+            window.awn = self._get_awn(window)
+        window.gid = self._get_group(window)
+        if window.awn is not None:
+            self._add_shortcut(window)
         Log.info('windows', 'new window attributes: %s' % window)
         if window.shortcut is not None:
             if (not window.awn.startswith('!') and
