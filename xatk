@@ -2025,6 +2025,13 @@ class KeybindingList(list):
     def __init__(self):
         self._marker = None             # last cyclic keybinding
 
+    def remove(self, keybinding):
+        for i, kb in enumerate(self):
+            if kb.match_full(keybinding.keycodes, keybinding.modmask):
+                del self[i]
+                return
+        raise ValueError(keybinding)
+
     def set_marker(self, keybinding):
         self._marker = keybinding
 
@@ -2255,6 +2262,9 @@ class KeyListener(object):
 
 class KeybindingManager(object):
 
+    bound_commands = {}
+    unbound_commands = {}
+
     def __init__(self):
         self._shortgen = ShortcutGenerator()
         map(self._shortgen.forbid_base, Config.rules.get_permanent_keys())
@@ -2274,23 +2284,34 @@ class KeybindingManager(object):
             action = Xtool.DESKTOP_IGNORE
         return functools.partial(Xtool.raise_window, wid, action)
 
-    def bind(self, keybinding):
-        self._keybinder.bind(keybinding)
+    def unbind_window(self, shortcut):
+        if shortcut in self.unbound_commands:
+            command = self.unbound_commands[shortcut]
+            self.rebind_to_command(shortcut, command)
+            self.bound_commands[shortcut] = command
+            del self.unbound_commands[shortcut]
+        else:
+            kb = Keybinding(Config.prefix + list(shortcut), lambda: None)
+            self._keybinder.unbind(kb)
 
-    def unbind(self, keybinding):
-        self._keybinder.unbind(keybinding)
-
-    def bind_window(self, shortcut, wid):
-        raise_window = self._make_raise_window_func(wid)
-        kb = Keybinding(Config.prefix + list(shortcut),
-                        raise_window, raise_window)
-        self._keybinder.bind(kb)
+    def bind_window(self, shortcut, window):
+        if shortcut in self.bound_commands:
+            kb = self.rebind_to_window(shortcut, window)
+            if kb:
+                self.unbound_commands[shortcut] = self.bound_commands[shortcut]
+                del self.bound_commands[shortcut]
+        else:
+            raise_window = self._make_raise_window_func(window.wid)
+            kb = Keybinding(Config.prefix + list(shortcut),
+                            raise_window, raise_window)
+            self._keybinder.bind(kb)
         return kb
 
     def bind_command(self, shortcut, command):
         run_command = self._make_run_command_func(command)
         kb = Keybinding(Config.prefix + list(shortcut), run_command)
         self._keybinder.bind(kb)
+        self.bound_commands[shortcut] = command
         return kb
 
     def bind_all_commands(self):
@@ -2304,34 +2325,25 @@ class KeybindingManager(object):
     def rebind_to_window(self, shortcut, window):
         raise_window = self._make_raise_window_func(window.wid)
         oldkb = Keybinding(Config.prefix + list(shortcut), lambda: None)
+        newkb = Keybinding(Config.prefix + list(shortcut),
+                           raise_window, raise_window)
         try:
             newkb = Keybinding(Config.prefix + list(shortcut),
                                raise_window, raise_window)
         except CyclicKeybindingError, e:
             Log.info('keys', e)
             return
-        try:
-            kb = self._keybinder.rebind(oldkb, newkb)
-        except ValueError, e:
-            Log.debug('keys', "can't rebind %s, it was not binded", oldkb)
-            return
+        window.keybinding = self._keybinder.rebind(oldkb, newkb)
         window.shortcut = shortcut
         window.shortcut_sort_key = self._shortgen.shortcut_sort_key(
             window.shortcut)
-        window.keybinding = kb
         return window.keybinding
 
     def rebind_to_command(self, shortcut, command):
         run_command = self._make_run_command_func(command)
         oldkb = Keybinding(Config.prefix + list(shortcut), lambda: None)
         newkb = Keybinding(Config.prefix + list(shortcut), run_command)
-        try:
-            kb = self._keybinder.rebind(oldkb, newkb)
-        except ValueError, e:
-            Log.debug('keys', "can't rebind %s, it was not binded", oldkb)
-            return
-        return kb
-
+        return self._keybinder.rebind(oldkb, newkb)
 
     def pickup_shortcut(self, window, windows):
         """
@@ -2346,7 +2358,7 @@ class KeybindingManager(object):
                 Log.info(('windows', 'keys'), 'so many windows, so few keys')
                 return
             try:
-                kb = self.bind_window(shortcut, window.wid)
+                kb = self.bind_window(shortcut, window)
             except (GrabError, CyclicKeybindingError), e:
                 Log.info('keys', e)
                 self._shortgen.forbid_base(shortcut[0])
@@ -2364,10 +2376,10 @@ class KeybindingManager(object):
         Similar to pickup_shortcut, but try to use shortcut instead.
 
         On success set shortcut, shortcut_sort_key and keybinding.  On failure
-        (all shortcuts are already grabbed), don't modify window attributes.
+        (e.g. all shortcuts are already grabbed), don't modify window attributes.
         """
         try:
-            kb = self.bind_window(shortcut, window.wid)
+            kb = self.bind_window(shortcut, window)
         except (GrabError, CyclicKeybindingError), e:
             Log.info('keys', e)
             return
@@ -2450,31 +2462,21 @@ class WindowManager(object):
         closed_groups = set([w.gid for w in closed_windows])
         for group in closed_groups:
             wins = self._windows.get_group_windows(group)
-            kb_queue = []
+            sh_queue = []
             for w in wins:
                 if w.wid in wids and w.shortcut:
-                    kb_queue.append((w.shortcut, w.keybinding))
-                elif kb_queue:
+                    sh_queue.append(w.shortcut)
+                elif sh_queue:
                     if w.shortcut:
-                        kb_queue.append((w.shortcut, w.keybinding))
+                        sh_queue.append(w.shortcut)
                     prev_shortcut = w.shortcut
-                    self._keyman.rebind_to_window(kb_queue.pop(0)[0], w)
+                    self._keyman.rebind_to_window(sh_queue.pop(0), w)
                     Log.info('keys', 'Rebinding: %s -> %s',
                              prev_shortcut, w.shortcut)
                     self._update_window_name(w, prev_shortcut)
-            for shortcut, keybinding in kb_queue:
-                if keybinding:
-                    rebind = False
-                    if len(shortcut) == 1: # last window of the group closed
-                        for w in closed_windows:
-                            if w.shortcut == shortcut:
-                                leader = w
-                        r = Config.rules.lookup_rule(leader)
-                        if r and r.command:
-                            rebind = True
-                            self._keyman.rebind_to_command(shortcut, r.command)
-                    if not rebind:
-                        self._keyman.unbind(keybinding)
+            for shortcut in sh_queue:
+                if shortcut:
+                    self._keyman.unbind_window(shortcut)
         for w in closed_windows:
             self._windows.remove(w)
 
@@ -2525,10 +2527,7 @@ class WindowManager(object):
             # permanent shortcut
             if window.awn.startswith('!'):
                 if not group:           # the first window
-                    if command:
-                        self._keyman.rebind_to_window(window.awn[1], window)
-                    else:
-                        self._keyman.try_shortcut(window.awn[1], window)
+                    self._keyman.try_shortcut(window.awn[1], window)
                 else:
                     # no shortcut for the leader? key is grabbed by someone
                     # else, so don't add a shortcut
