@@ -2444,57 +2444,39 @@ class WindowManager(object):
 
     def _on_windows_close(self, wids):
         """
-        Delete the window from the window list and unbind it.
-
-        If the group leader (the first window of the group) was closed, rebind
-        all the other windows of the group.
-
+        Remove windows from the list, unbind them, rebind others if necessary.
         """
-        # TODO: use rebind() instead of unbind() + bind() when possible
         closed_windows = self._windows.get_windows(wids)
-        group_shortcuts = {}
-        for closed in closed_windows:
-            if closed.shortcut is not None:
-                self._keyman.unbind(closed.keybinding)
-                group_shortcuts[closed.gid] = closed.shortcut[0]
-            self._windows.remove(closed)
-            Log.info(('windows'), "window '%s' (id=0x%x) closed " %
-                     (closed.name, closed.wid))
-        # If the group leader was closed it is needed to rebind all the windows
-        # of the group. Simultaneous closing of few leaders is also possible.
-        # groups of closed leaders
-        group_leaders = {}
+        closed_groups = set([w.gid for w in closed_windows])
+        for group in closed_groups:
+            wins = self._windows.get_group_windows(group)
+            kb_queue = []
+            for w in wins:
+                if w.wid in wids and w.shortcut:
+                    kb_queue.append((w.shortcut, w.keybinding))
+                elif kb_queue:
+                    if w.shortcut:
+                        kb_queue.append((w.shortcut, w.keybinding))
+                    prev_shortcut = w.shortcut
+                    self._keyman.rebind_to_window(kb_queue.pop(0)[0], w)
+                    Log.info('keys', 'Rebinding: %s -> %s',
+                             prev_shortcut, w.shortcut)
+                    self._update_window_name(w, prev_shortcut)
+            for shortcut, keybinding in kb_queue:
+                if keybinding:
+                    rebind = False
+                    if len(shortcut) == 1: # last window of the group closed
+                        for w in closed_windows:
+                            if w.shortcut == shortcut:
+                                leader = w
+                        r = Config.rules.lookup_rule(leader)
+                        if r and r.command:
+                            rebind = True
+                            self._keyman.rebind_to_command(shortcut, r.command)
+                    if not rebind:
+                        self._keyman.unbind(keybinding)
         for w in closed_windows:
-            if w.shortcut and len(w.shortcut) == 1:
-                group_leaders[w.gid] = w
-        for group in group_leaders:
-            group_windows = self._windows.get_group_windows(group)
-            if not group_windows:
-                r = Config.rules.lookup_rule(group_leaders[group])
-                if r and r.command:
-                    self._keyman.bind_command(group_shortcuts[group],
-                                              command=r.command)
-                continue
-            # reset window shortcuts
-            for w in group_windows:
-                if w.keybinding is not None:
-                    self._keyman.unbind(w.keybinding)
-                w.prev_shortcut = w.shortcut
-                w.shortcut = None
-            # bind the leader manually
-            leader = group_windows[0]
-            self._keyman.try_shortcut(group_shortcuts[group], leader)
-            Log.info('keys', 'Rebinding: %s -> %s',
-                     leader.prev_shortcut, leader.shortcut)
-            self._update_window_name(leader, leader.prev_shortcut)
-            del leader.prev_shortcut
-            # bind other windows with pickup_shortcut
-            for w in group_windows[1:]:
-                self._keyman.pickup_shortcut(w, self._windows)
-                Log.info('keys', 'Rebinding: %s -> %s',
-                         w.prev_shortcut, w.shortcut)
-                self._update_window_name(w, w.prev_shortcut)
-                del w.prev_shortcut
+            self._windows.remove(w)
 
     def _on_window_create(self, wid):
         """
