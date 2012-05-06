@@ -42,6 +42,7 @@
 
 import ConfigParser
 import codecs
+import errno
 import locale
 import logging.handlers
 import optparse
@@ -71,8 +72,10 @@ else:
 PROG_NAME = os.path.basename(sys.argv[0])
 VERSION = (0, 2, -1)
 CONFIG_PATH = ('~/.xatkrc', '~/.xatk/xatkrc')
+CONFIG_DIR = os.path.expanduser("~/.xatk")
+LOCK_PATH = os.path.join(CONFIG_DIR, "lock")
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
-FIELDS = ('config', 'windows', 'keys', 'signals', 'X')
+FIELDS = ('config', 'windows', 'keys', 'signals', 'X', 'lock')
 ENCODING = locale.getpreferredencoding()
 
 
@@ -2588,7 +2591,7 @@ class SignalHandler:
     def graceful_exit_handler(sig, frame):
         """Handle graceful exit of the program."""
         Log.info('signals', 'signal recieved: %i', sig)
-        graceful_exit(history=True)
+        graceful_exit(history=True, rm_lock=True)
 
     @staticmethod
     def save_histoy_handler(sig, frame):
@@ -2599,21 +2602,54 @@ class SignalHandler:
             Log.exception('config', e)
 
     @staticmethod
-    def handle_all(history=False):
+    def handle_all():
         """Handle all the signals defined in `SignalHandler` class"""
         signal.signal(signal.SIGTERM, SignalHandler.graceful_exit_handler)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
-        if history:
-            signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
+        signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
 
 
-def graceful_exit(exit_code=0, history=False):
-    """Write history (if it's True), shutdown logging, and exit."""
+def lock():
+    """
+    Return True if the lock has been successful. Return False if the lock has
+    already been set (by another xatk instance). Raise OSError if the error
+    occurred when opening or writing file.
+    """
+    status = True
+    try:
+        os.mkdir(CONFIG_DIR, 0700)
+    except OSError:
+        pass
+    try:
+        fd = os.open(LOCK_PATH, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0600)
+    except OSError, e:
+        if e.errno == errno.EEXIST:
+            status = False
+        else:
+            raise
+    else:
+        os.write(fd, str(os.getpid()))
+        os.close(fd)
+    return status
+
+
+def remove_lock(log=False):
+    try:
+        os.remove(LOCK_PATH)
+    except OSError, e:
+        if log:
+            Log.exception('lock', e)
+
+
+def graceful_exit(exit_code=0, history=False, rm_lock=False):
+    """Optionally write history and remove lock, shutdown logging, and exit."""
     if history:
         try:
             Config.history.write()
         except (IOError, OSError, MissingSectionError), e:
             Log.exception('config', e)
+    if rm_lock:
+        remove_lock(log=True)
     logging.shutdown()
     sys.exit(exit_code)
 
@@ -2754,7 +2790,7 @@ def daemonize():
             sys.exit(0)
     except OSError, e:
         Log.critical(PROG_NAME, 'fork #1 failed: %d (%s)', e.errno, e.strerror)
-        graceful_exit(1)
+        graceful_exit(1, rm_lock=True)
 
     # decouple from parent environment
     os.chdir('/')
@@ -2769,7 +2805,7 @@ def daemonize():
             sys.exit(0)
     except OSError, e:
         Log.critical(PROG_NAME, 'fork #2 failed: %d (%s)', e.errno, e.strerror)
-        graceful_exit(1)
+        graceful_exit(1, rm_lock=True)
 
     # redirect standard file descriptors
     sys.stdout.flush()
@@ -2823,6 +2859,16 @@ def main():
             sys.stdout.stdbackup.write('%s\n' % key)
         graceful_exit()
 
+    try:
+        locked = lock()
+    except OSError, e:
+        Log.exception('lock', e)
+        graceful_exit(1, rm_lock=True)
+    if not locked:
+        Log.error('lock', "xatk is already running. If not, "
+                  "remove %s", LOCK_PATH)
+        graceful_exit(1)
+
     if options.filepath is not None:
         Config.set_path(options.filepath)
     Config.use_defaults()
@@ -2832,13 +2878,13 @@ def main():
             Config.parse()
         except ConfigError, e:
             Log.exception('config', e)
-            graceful_exit(1)
+            graceful_exit(1, rm_lock=True)
     else:
         pathstr = '%s ' % filepath if options.filepath else ''
-        Log.error('config', ("congiguration file %sdoesn't exist. Create "
+        Log.error('config', ("configuration file %sdoesn't exist. Create "
                   "it first: mkdir -p ~/.xatk && %s --print-defaults > "
                   "%s") % (pathstr, PROG_NAME, CONFIG_PATH[1]))
-        graceful_exit(1)
+        graceful_exit(1, rm_lock=True)
 
     if options.daemon:
         Log.release_stderr()
@@ -2848,15 +2894,25 @@ def main():
             Log.capture_stderr()
             Log.capture_stdout()
             Log.removeHandler()
+        try:
+            lockfile = None
+            lockfile = open(LOCK_PATH, 'w')
+            lockfile.write(str(os.getpid()))
+        except IOError, e:
+            Log.exception('lock', e)
+        finally:
+            if lockfile:
+                lockfile.close()
 
-    WindowManager()                     # everything starts here
-    SignalHandler.handle_all(history=True)
+    SignalHandler.handle_all()
     try:
-        Xtool.event_loop()              # and continues here
+        WindowManager()         # everything starts here
+        Xtool.event_loop()      # and continues here
     except ConnectionClosedError, e:
         Log.exception('X', e)
         graceful_exit(1, history=True)
-
+    finally:
+        remove_lock()
 
 if __name__ == "__main__":
     main()
