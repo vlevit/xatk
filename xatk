@@ -651,7 +651,7 @@ class Rule(object):
         self.template = template
         try:
             self.regpat = re.compile(regex, re.I | re.UNICODE)
-        except re.error, e:
+        except re.error:
             raise RuleOptionValueError(escape(prop), escape(regex),
                 escape(awn), escape(command), message="invalid regex")
 
@@ -884,7 +884,7 @@ class Config(object):
                 Log.warning('config', 'missing section RULES')
             if Config.history_length != 0:
                 if config.has_section('HISTORY'):
-                   Config.history.parse(config.items('HISTORY'))
+                    Config.history.parse(config.items('HISTORY'))
                 else:
                     Log.warning('config', 'missing section HISTORY')
 
@@ -1162,7 +1162,7 @@ class Config(object):
      # remove prefix gnome- from window classes
      # class.gnome-(.*) = \\1
 
-     # transform classes icecat, iceweasel, and icedove to awns cat, weasel, and
+     # transform classes icecat, iceweasel, and icedove to awns cat, weasel,
      # dove respectively
      # class.ice(cat|weasel|dove) = \\1
 
@@ -2274,9 +2274,11 @@ class KeybindingManager(object):
         self._keybinder = KeyBinder()
 
     def _make_run_command_func(self, command):
-        return functools.partial(subprocess.Popen, command, shell=True, cwd='/',
-            stdin=file(os.devnull, 'r'), stdout=file(os.devnull, 'a+'),
-            stderr=file(os.devnull, 'a+', 0), close_fds=True)
+        return functools.partial(subprocess.Popen, command, shell=True,
+                                 cwd='/', stdin=file(os.devnull, 'r'),
+                                 stdout=file(os.devnull, 'a+'),
+                                 stderr=file(os.devnull, 'a+', 0),
+                                 close_fds=True)
 
     def _make_raise_window_func(self, wid):
         if Config.desktop_action == 'SwitchDesktop':
@@ -2379,7 +2381,8 @@ class KeybindingManager(object):
         Similar to pickup_shortcut, but try to use shortcut instead.
 
         On success set shortcut, shortcut_sort_key and keybinding.  On failure
-        (e.g. all shortcuts are already grabbed), don't modify window attributes.
+        (e.g. all shortcuts are already grabbed), don't modify window
+        attributes.
         """
         try:
             kb = self.bind_window(shortcut, window)
@@ -2436,7 +2439,6 @@ class WindowManager(object):
     def _get_awn(self, window):
         rule = Config.rules.lookup_rule(window)
         if rule:            # rule found?
-            command = rule.command
             awn = rule.substitute(window)
             if awn is None:               # bad awn substitution?
                 awn = window.klass        # awn is class by default
@@ -2451,7 +2453,7 @@ class WindowManager(object):
         if window.awn is None:
             gid = 0
         elif Config.group_windows_by == 'Group':
-            gid = Xtool.get_window_group_id(wid)
+            gid = Xtool.get_window_group_id(window.wid)
         elif Config.group_windows_by == 'AWN':
             gid = self._windows.get_group_id(window.awn)
         if not gid:
@@ -2459,7 +2461,8 @@ class WindowManager(object):
         return gid
 
     def _add_shortcut(self, window):
-        """Add shortcut, shortcut_sort_key and keybinding attributes to window"""
+        """Add shortcut, shortcut_sort_key and keybinding attributes to
+        window."""
         if window.awn.startswith('!'):                     # permanent shortcut
             if not self._windows.get_group_id(window.awn): # the first window
                 self._keyman.try_shortcut(window.awn[1], window)
