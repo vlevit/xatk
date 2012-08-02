@@ -43,6 +43,8 @@
 import ConfigParser
 import codecs
 import errno
+import fcntl
+import functools
 import locale
 import logging.handlers
 import optparse
@@ -52,7 +54,6 @@ import signal
 import StringIO
 import subprocess
 import sys
-import functools
 from ConfigParser import RawConfigParser
 from UserDict import DictMixin
 
@@ -2594,7 +2595,7 @@ class SignalHandler:
     def graceful_exit_handler(sig, frame):
         """Handle graceful exit of the program."""
         Log.info('signals', 'signal recieved: %i', sig)
-        graceful_exit(history=True, rm_lock=True)
+        graceful_exit(history=True)
 
     @staticmethod
     def save_histoy_handler(sig, frame):
@@ -2612,47 +2613,94 @@ class SignalHandler:
         signal.signal(signal.SIGUSR1, SignalHandler.save_histoy_handler)
 
 
-def lock():
+class KeepLock(Exception):
     """
-    Return True if the lock has been successful. Return False if the lock has
-    already been set (by another xatk instance). Raise OSError if the error
-    occurred when opening or writing file.
+    Raised to exit the program keeping the lock file.
+    Useful for creating a daemon.
     """
-    status = True
-    try:
-        os.mkdir(CONFIG_DIR, 0700)
-    except OSError:
-        pass
-    try:
-        fd = os.open(LOCK_PATH, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0600)
-    except OSError, e:
-        if e.errno == errno.EEXIST:
-            status = False
+
+
+class FileLock:
+    """
+    Class which provides file locking functionality.
+    It also implements context manager protocol.
+    """
+
+    fd = None
+
+    def __enter__(self):
+        """
+        Return (lock, err) tuple
+
+        lock is a FileLock instance if the lock was acquired successfully,
+        err is None or an unexpected exception (IOError or OSError).
+
+        """
+        err = None
+        lock = None
+        try:
+            lock = self if self.lock() else None
+        except EnvironmentError, e:
+            err = e
+        return lock, err
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type == KeepLock:
+            return True
         else:
-            raise
-    else:
-        os.write(fd, str(os.getpid()))
-        os.close(fd)
-    return status
+            self.remove()
 
+    def lock(self):
+        """
+        Acquire a lock, return True if the lock was successful.
 
-def remove_lock(log=False):
-    try:
-        os.remove(LOCK_PATH)
-    except OSError, e:
-        if log:
+        Return False if the lock had already been set (by another xatk
+        instance). Raise IOError or OSError if the error occurred while
+        opening, locking or writing to a file.
+
+        """
+        status = True
+        fd = os.open(LOCK_PATH, os.O_RDWR | os.O_CREAT, 0600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except IOError, e:
+            os.close(fd)
+            if e.errno == errno.EWOULDBLOCK:
+                status = False
+            else:
+                raise
+        if status:
+            os.ftruncate(fd, 0)
+            os.write(fd, str(os.getpid()) + '\n')
+            self.fd = fd
+        return status
+
+    def remove(self):
+        """Remove the lock."""
+        try:
+            if self.fd:
+                os.close(self.fd)
+                self.fd = None
+                os.remove(LOCK_PATH)
+        except OSError, e:
             Log.exception('lock', e)
 
+    def update_pid(self):
+        if self.fd:
+            try:
+                os.ftruncate(self.fd, 0)
+                os.write(self.fd, str(os.getpid()) + '\n')
+            except OSError, e:
+                Log.exception('lock', e)
 
-def graceful_exit(exit_code=0, history=False, rm_lock=False):
+
+def graceful_exit(exit_code=0, history=False):
     """Optionally write history and remove lock, shutdown logging, and exit."""
     if history:
         try:
             Config.history.write()
         except (IOError, OSError, MissingSectionError), e:
             Log.exception('config', e)
-    if rm_lock:
-        remove_lock(log=True)
     logging.shutdown()
     sys.exit(exit_code)
 
@@ -2790,10 +2838,10 @@ def daemonize():
         pid = os.fork()
         if pid > 0:
             # exit first parent
-            sys.exit(0)
+            raise KeepLock
     except OSError, e:
         Log.critical(PROG_NAME, 'fork #1 failed: %d (%s)', e.errno, e.strerror)
-        graceful_exit(1, rm_lock=True)
+        graceful_exit(1)
 
     # decouple from parent environment
     os.chdir('/')
@@ -2804,10 +2852,10 @@ def daemonize():
         pid = os.fork()
         if pid > 0:
             # exit from second parent
-            sys.exit(0)
+            raise KeepLock
     except OSError, e:
         Log.critical(PROG_NAME, 'fork #2 failed: %d (%s)', e.errno, e.strerror)
-        graceful_exit(1, rm_lock=True)
+        graceful_exit(1)
 
     # redirect standard file descriptors
     sys.stdout.flush()
@@ -2861,60 +2909,49 @@ def main():
             sys.stdout.stdbackup.write('%s\n' % key)
         graceful_exit()
 
-    try:
-        locked = lock()
-    except OSError, e:
-        Log.exception('lock', e)
-        graceful_exit(1, rm_lock=True)
-    if not locked:
-        Log.error('lock', "xatk is already running. If not, "
-                  "remove %s", LOCK_PATH)
-        graceful_exit(1)
+    with FileLock() as (filelock, err):
+        if err:
+            Log.exception('lock', err)
+            graceful_exit(1)
+        if not filelock:
+            Log.error('lock', "xatk is already running. See "
+                      "%s for pid", LOCK_PATH)
+            graceful_exit(1)
 
-    if options.filepath is not None:
-        Config.set_path(options.filepath)
-    Config.use_defaults()
-    filepath = Config.get_path()
-    if filepath and os.path.exists(filepath):
+        if options.filepath is not None:
+            Config.set_path(options.filepath)
+        Config.use_defaults()
+        filepath = Config.get_path()
+        if filepath and os.path.exists(filepath):
+            try:
+                Config.parse()
+            except ConfigError, e:
+                Log.exception('config', e)
+                graceful_exit(1)
+        else:
+            pathstr = '%s ' % filepath if options.filepath else ''
+            Log.error('config', ("configuration file %sdoesn't exist. Create "
+                      "it first: mkdir -p ~/.xatk && %s --print-defaults > "
+                      "%s") % (pathstr, PROG_NAME, CONFIG_PATH[1]))
+            graceful_exit(1)
+
+        if options.daemon:
+            Log.release_stderr()
+            Log.release_stdout()
+            daemonize()
+            if options.logfile is not None:
+                Log.capture_stderr()
+                Log.capture_stdout()
+                Log.removeHandler()
+            filelock.update_pid()
+
+        SignalHandler.handle_all()
         try:
-            Config.parse()
-        except ConfigError, e:
-            Log.exception('config', e)
-            graceful_exit(1, rm_lock=True)
-    else:
-        pathstr = '%s ' % filepath if options.filepath else ''
-        Log.error('config', ("configuration file %sdoesn't exist. Create "
-                  "it first: mkdir -p ~/.xatk && %s --print-defaults > "
-                  "%s") % (pathstr, PROG_NAME, CONFIG_PATH[1]))
-        graceful_exit(1, rm_lock=True)
-
-    if options.daemon:
-        Log.release_stderr()
-        Log.release_stdout()
-        daemonize()
-        if options.logfile is not None:
-            Log.capture_stderr()
-            Log.capture_stdout()
-            Log.removeHandler()
-        try:
-            lockfile = None
-            lockfile = open(LOCK_PATH, 'w')
-            lockfile.write(str(os.getpid()))
-        except IOError, e:
-            Log.exception('lock', e)
-        finally:
-            if lockfile:
-                lockfile.close()
-
-    SignalHandler.handle_all()
-    try:
-        WindowManager()         # everything starts here
-        Xtool.event_loop()      # and continues here
-    except ConnectionClosedError, e:
-        Log.exception('X', e)
-        graceful_exit(1, history=True)
-    finally:
-        remove_lock()
+            WindowManager()         # everything starts here
+            Xtool.event_loop()      # and continues here
+        except ConnectionClosedError, e:
+            Log.exception('X', e)
+            graceful_exit(1, history=True)
 
 if __name__ == "__main__":
     main()
