@@ -1,4 +1,5 @@
 #!/usr/bin/env python2
+# -*- mode: python; -*-
 
 # xatk is a window switcher which assigns keybindings to windows dynamically
 # Copyright (C) 2010-2012 Vyacheslav Levit
