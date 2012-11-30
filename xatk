@@ -2324,7 +2324,8 @@ class KeybindingManager(object):
 
     def _make_run_command_func(self, command):
         return functools.partial(subprocess.Popen, command, shell=True,
-                                 cwd='/', stdin=file(os.devnull, 'r'),
+                                 cwd=os.path.expanduser('~'),
+                                 stdin=file(os.devnull, 'r'),
                                  stdout=file(os.devnull, 'a+'),
                                  stderr=file(os.devnull, 'a+', 0),
                                  close_fds=True)
