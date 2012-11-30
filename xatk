@@ -1593,10 +1593,10 @@ class Xtool(object):
         """
         Return True if modmask1 and modmask2 are equal.
 
-        Mod2Mask and LockMask in the given modmasks are not considered.
+        Consider only Shift, Control, Mod1 and Mod4 masks, ignore others.
         """
-        return (modmask1 & ~(X.Mod2Mask | X.LockMask) ==
-                modmask2 & ~(X.Mod2Mask | X.LockMask))
+        mask = X.ShiftMask | X.ControlMask | X.Mod1Mask | X.Mod4Mask
+        return modmask1 & mask == modmask2 & mask
 
     @staticmethod
     def _load_keys():
