@@ -79,53 +79,6 @@ LOCK_PATH = os.path.join(CONFIG_DIR, "lock")
 VERSION_NAME = '%s %s' % (PROG_NAME, '.'.join(map(str, VERSION)))
 FIELDS = ('config', 'windows', 'keys', 'signals', 'X', 'lock')
 ENCODING = locale.getpreferredencoding()
-MELODICA = \
-"""
-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
-2YoKMdfZiEsc/ZJs38sP/AUp7iVk=
-"""
-COLORS = \
-"""
-eNotT0kOwjAQcw/9RgJZpETN8p9WFJBAbP+/Ywcu43G8JIlz/2CK147JrB2YwqUjzu2NwCO3dwQRT+L
-PXfJcntoFQSM2uHHm9sokNz+oWatGGxld4vYGX4RqpFQkNbakG0Jhtr7gqgwklTXiEl2CKbAJhzSuVt
-vxxNfYbdGQkdAZoZvNP1u+C1TEzUqK2lxT+v9vReO8PHDMCmaYrCqi/D4zpxq71S8T5ykB
-"""
 
 
 class OrderedDict(dict, DictMixin):
@@ -2743,43 +2696,6 @@ class FileLock:
                 Log.exception('lock', e)
 
 
-def melodica():
-
-    import base64
-    import struct
-    import zlib
-
-    def unpack_colors():
-        data = zlib.decompress(base64.b64decode(COLORS))
-        colors_bin = data.split('\x00')
-        colors = []
-        for cbin in colors_bin:
-            if cbin:
-                unpacked = struct.unpack(str(len(cbin)) + 'B', cbin)
-                color = '\x1b[0;' + ';'.join(map(str, unpacked)) + 'm'
-            else:
-                color = '\x1b[0m'
-            colors.append(color)
-        return colors
-
-    def unpack_melodica():
-        data = zlib.decompress(base64.b64decode(MELODICA))
-        colors = unpack_colors()
-        out = ""
-        for byte in data:
-            if byte < '\x80':
-                out += byte
-            else:
-                i = struct.unpack('B', byte)[0]
-                out += colors[i - 128]
-        return out
-
-    def print_melodica():
-        print unpack_melodica()
-
-    print_melodica()
-
-
 def graceful_exit(exit_code=0, history=False):
     """Optionally write history and remove lock, shutdown logging, and exit."""
     if history:
@@ -2844,11 +2760,6 @@ def parse_options():
                          default=False,
                          help='Print all available keys on the standard '
                          'output.')
-    optparser.add_option('--melodica',
-                         dest='melodica',
-                         action='store_true',
-                         default=False,
-                         help=optparse.SUPPRESS_HELP)
     debgroup = optparse.OptionGroup(optparser, 'Debugging Options')
     debgroup.add_option('-v', '--verbose',
                         dest='verbosity',
@@ -2963,9 +2874,6 @@ def main():
     options = parse_options()
     if options.print_defaults:
         print Config.get_default_config().encode(ENCODING)
-        graceful_exit()
-    if options.melodica:
-        melodica()
         graceful_exit()
     if options.verbosity == 0:
         Log.setLevel(logging.WARNING)
