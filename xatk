@@ -1399,7 +1399,7 @@ class Xtool(object):
 
     @staticmethod
     def get_all_keys():
-        keysyms=[]
+        keysyms = []
         keys = []
         keycodes = range(Xtool._display.display.info.min_keycode,
                          Xtool._display.display.info.max_keycode -
@@ -1449,7 +1449,7 @@ class Xtool(object):
         bitmap = Xtool._display.query_keymap()
         return bitmap[keycode / 8] & (1 << (keycode % 8))
 
-    # Window reltaed methods
+    # Window related methods
     #
     @staticmethod
     def _atom(name):
