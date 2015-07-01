@@ -42,6 +42,7 @@ try:
     from Xlib import display
     from Xlib import protocol
     import Xlib.error
+    from Xlib.error import BadWindow
 except ImportError:
     XLIB_PRESENT = False
 else:
@@ -1322,16 +1323,6 @@ class Window(object):
         return ', '.join(['%s: %s' % (k, str_or_hex(k, d[k])) for k in d])
 
 
-class BadWindow(Exception):
-    """Wrapper for Xlib's BadWindow exception."""
-
-    def __init__(self, wid):
-        self.wid = wid
-
-    def __str__(self):
-        return "Bad window with id=%s" % hex(self.wid)
-
-
 class ConnectionClosedError(Exception):
     """Wrapper for Xlib's ConnectionClosedError exception."""
 
@@ -1465,6 +1456,8 @@ class Xtool(object):
         and may cause BadValue Error because of incorrect long_offset value.
         Workaround here is that property is (re)read entirely if its size is
         larger than it has been expected.
+
+        Raise BadWindow.
         """
         long_length = sizehint
         bytes_after = 1
@@ -1479,9 +1472,13 @@ class Xtool(object):
 
     @staticmethod
     def get_window_list():
-        prop = Xtool._get_full_property(Xtool._root,
-                                        Xtool._atom("_NET_CLIENT_LIST"),
-                                        Xatom.WINDOW)
+        try:
+            prop = Xtool._get_full_property(Xtool._root,
+                                            Xtool._atom("_NET_CLIENT_LIST"),
+                                            Xatom.WINDOW)
+        except BadWindow as e:
+            Log.exception('bad root window', e)
+            prop = None
         if prop:
             return prop.value
         else:
@@ -1489,22 +1486,21 @@ class Xtool(object):
 
     @staticmethod
     def _get_window(wid):
+        """Get Xlib.xobject.drawable.Window instance with a resource id."""
         return Xtool._display.create_resource_object("window", wid)
 
     @staticmethod
     def get_window_name(wid):
+        """Retrieve a window name by the resource id. Raise BadWindow."""
         win = Xtool._get_window(wid)
         prop = None
-        try:
-            prop = Xtool._get_full_property(win, Xtool._atom('_NET_WM_NAME'),
-                                            Xtool._atom('UTF8_STRING'))
-            if prop:
-                return prop.value.decode('utf-8', 'ignore_log')
-            else:
-                prop = Xtool._get_full_property(win, Xatom.WM_NAME,
-                                                Xatom.STRING)
-        except Xlib.error.BadWindow:
-            raise BadWindow(wid)
+        prop = Xtool._get_full_property(win, Xtool._atom('_NET_WM_NAME'),
+                                        Xtool._atom('UTF8_STRING'))
+        if prop:
+            return prop.value.decode('utf-8', 'ignore_log')
+        else:
+            prop = Xtool._get_full_property(win, Xatom.WM_NAME,
+                                            Xatom.STRING)
         if prop is not None:
             return prop.value.decode('latin_1', 'ignore_log')
         else:
@@ -1512,13 +1508,11 @@ class Xtool(object):
 
     @staticmethod
     def get_window_class(wid):
+        """Retrieve a window class by the resource id. Raise BadWindow."""
         win = Xtool._get_window(wid)
         instance, klass = u'', u''
         prop = None
-        try:
-            prop = Xtool._get_full_property(win, Xatom.WM_CLASS, Xatom.STRING)
-        except Xlib.error.BadWindow:
-            raise BadWindow(wid)
+        prop = Xtool._get_full_property(win, Xatom.WM_CLASS, Xatom.STRING)
         if prop:
             parts = prop.value.split('\0')
             instance = parts[0].decode('latin_1', 'ignore_log')
@@ -1528,6 +1522,7 @@ class Xtool(object):
 
     @staticmethod
     def get_window_group_id(wid):
+        """Retrieve a window group id by the resource id. Raise BadWindow."""
         hints = Xtool._get_window(wid).get_wm_hints()
         group_id = 0
         if hints:
@@ -1535,15 +1530,16 @@ class Xtool(object):
         return group_id
 
     @staticmethod
-    def _set_property(wid, prop, name):
-        if not isinstance(name, unicode):
-            raise TypeError('an unicode string is required')
+    def _set_property(wid, prop, value):
+        """Set window property to value. Raise BadWindow."""
+        if not isinstance(value, unicode):
+            raise TypeError('value must be a unicode instance')
         win = Xtool._get_window(wid)
         win.change_property(
             Xtool._atom(prop),
             Xtool._atom('UTF8_STRING'),
             8,
-            name.encode('utf-8'),
+            value.encode('utf-8'),
             mode=X.PropModeReplace)
 
     @staticmethod
@@ -1575,14 +1571,17 @@ class Xtool(object):
 
     @staticmethod
     def set_window_name(wid, name):
+        """Set window name. Raise BadWindow."""
         Xtool._set_property(wid, '_NET_WM_NAME', name)
 
     @staticmethod
     def set_window_icon_name(wid, name):
+        """Set window icon name. Raise BadWindow."""
         Xtool._set_property(wid, '_NET_WM_ICON_NAME', name)
 
     @staticmethod
     def get_transient_for(wid):
+        """Get TRANSIENT_FOR window id. Raise BadWindow."""
         window = Xtool._get_window(wid)
         reply = Xtool._get_full_property(window,
             Xtool._atom('WM_TRANSIENT_FOR'), Xatom.WINDOW)
@@ -1595,6 +1594,7 @@ class Xtool(object):
 
     @staticmethod
     def get_window_types(wid):
+        """Get window types. Raise BadWindow."""
         window = Xtool._get_window(wid)
         reply = Xtool._get_full_property(window,
             Xtool._atom('_NET_WM_WINDOW_TYPE'), Xatom.ATOM)
@@ -1621,6 +1621,11 @@ class Xtool(object):
 
     @staticmethod
     def raise_window(wid, desktop_action=DESKTOP_IGNORE):
+        """Activate window.
+
+        Optionally switch a desktop or move a window to the active desktop.
+        Raise BadWindow.
+        """
         if desktop_action == Xtool.DESKTOP_SWITCH_DESKTOP:
             deskno = Xtool._get_desktop_number(wid)
             if deskno is not None:
@@ -1641,6 +1646,7 @@ class Xtool(object):
         """
         Tell Xtool to watch the window name changes. Otherwise
         `window_name_listener.on_window_name_changed()` will not work.
+        Raise BadWindow.
         """
         Xtool._get_window(wid).change_attributes(
             event_mask=X.PropertyChangeMask)
@@ -2163,7 +2169,14 @@ class KeybindingManager(object):
             action = Xtool.DESKTOP_MOVE_WINDOW
         else:
             action = Xtool.DESKTOP_IGNORE
-        return functools.partial(Xtool.raise_window, wid, action)
+
+        def raise_window(wid=wid, action=action):
+            try:
+                Xtool.raise_window(wid, action)
+            except BadWindow, e:
+                Log.exception('windows', e)
+
+        return raise_window
 
     def unbind_window(self, shortcut):
         if shortcut in self.unbound_commands:
@@ -2304,6 +2317,7 @@ class WindowManager(object):
                   ', '.join(map(str, self.window_types)))
 
     def _get_window_type(self, wid):
+        """Get window type. Raise BadWindow."""
         types = Xtool.get_window_types(wid)
         for t in types:
             if t in self.known_window_types:
@@ -2329,7 +2343,10 @@ class WindowManager(object):
         if window.awn is None:
             gid = 0
         elif Config.group_windows_by == 'Group':
-            gid = Xtool.get_window_group_id(window.wid)
+            try:
+                gid = Xtool.get_window_group_id(window.wid)
+            except BadWindow as e:
+                Log.exception('windows', e)
         elif Config.group_windows_by == 'AWN':
             gid = self._windows.get_group_id(window.awn)
         if not gid:
@@ -2428,7 +2445,10 @@ class WindowManager(object):
                 Config.history.update_item(window.awn, window.shortcut[0])
             self._update_window_name(window, window.shortcut)
         if window.awn is not None:
-            Xtool.listen_window_name(window.wid)
+            try:
+                Xtool.listen_window_name(window.wid)
+            except BadWindow, e:
+                Log.exception('windows', e)
         self._windows.append(window)
 
     def _update_window_name(self, window, prev_shortcut):
@@ -2457,7 +2477,10 @@ class WindowManager(object):
         window.name = new_name
         new_name = Config.title_format.replace('%t', new_name)
         new_name = new_name.replace('%s', window.shortcut)
-        Xtool.set_window_name(window.wid, new_name)
+        try:
+            Xtool.set_window_name(window.wid, new_name)
+        except BadWindow, e:
+            Log.exception('windows', e)
 
 
 class SignalHandler:
