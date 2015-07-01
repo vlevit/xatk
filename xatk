@@ -1453,7 +1453,7 @@ class Xtool(object):
     #
     @staticmethod
     def _atom(name):
-        return Xtool._display.intern_atom(name)
+        return Xtool._display.get_atom(name)
 
     @staticmethod
     def _get_full_property(win, prop, kind, sizehint=32):
