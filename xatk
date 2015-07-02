@@ -2604,6 +2604,27 @@ def graceful_exit(exit_code=0, history=False):
     sys.exit(exit_code)
 
 
+def kill_running_instance():
+    """Kill running xatk instance. Return status code."""
+    status = 1
+    try:
+        with open(LOCK_PATH) as lockfile:
+            pid = int(lockfile.readline().rstrip())
+    except IOError as e:
+        if e.errno == errno.ENOENT:
+            sys.stderr.write('Lock file not found. xatk is probably not '
+                             'running.\n')
+        else:
+            sys.stderr.write("Error reading the lock file '%s': %s\n" %
+                             (LOCK_PATH, e))
+    except ValueError:
+        sys.stderr.write("The lock file content is invalid.")
+    else:
+        os.kill(pid, signal.SIGTERM)
+        status = 0
+    return status
+
+
 def parse_options():
     """
     Parse command line options and return an object holding option
@@ -2657,6 +2678,11 @@ def parse_options():
                          default=False,
                          help='Print all available keys on the standard '
                          'output.')
+    optparser.add_option('--kill',
+                         dest='kill',
+                         action='store_true',
+                         default=False,
+                         help='Gracefully stop running xatk instance.')
     debgroup = optparse.OptionGroup(optparser, 'Debugging Options')
     debgroup.add_option('-v', '--verbose',
                         dest='verbosity',
@@ -2772,6 +2798,9 @@ def main():
     if options.print_defaults:
         print Config.get_default_config().encode(ENCODING)
         graceful_exit()
+    if options.kill:
+        status = kill_running_instance()
+        graceful_exit(status)
     if options.verbosity == 0:
         Log.setLevel(logging.WARNING)
     elif options.verbosity == 1:
