@@ -2587,6 +2587,7 @@ class FileLock:
         if self.fd:
             try:
                 os.ftruncate(self.fd, 0)
+                os.lseek(self.fd, 0, os.SEEK_SET)
                 os.write(self.fd, str(os.getpid()) + '\n')
             except OSError, e:
                 Log.exception('lock', e)
