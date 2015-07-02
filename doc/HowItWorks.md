@@ -1,4 +1,6 @@
-## The idea behind xatk ##
+# How it works
+
+## Motivation
 
 Most of window switchers are interactive. They provide attributes associated
 with windows (e.g. titles, icons, previews) which we scan first and than choose
@@ -16,12 +18,13 @@ approach has a few drawbacks:
   * manual composition of keyboard shortcuts which becomes even more boring when you stop using one program and start using another one;
   * it is not easy to keep in mind all defined keyboard shortcuts.
 
-xatk was created to resolve these deficiencies.
+xatk was created to resolve these issues.
 
-## How xatk works ##
+## How it works
 
-When a new window appears, xatk determines its special name called abstract
+When a new window appears xatk determines its special name called abstract
 window name (awn). This name is used for 2 purposes:
+
   * windows which have the same awn fall into one group;
   * characters of awn are preferable keys to compose a shortcut from for the corresponding window.
 
@@ -42,7 +45,7 @@ features:
 Windows which belong to the same group have the same base key which
 is the first key of the shortcut.
 
-## Keybindings ##
+## Keybindings
 
 xatk tries to compose keybindings which would be easy to press and predict. If
 a window is alone in the group, then to activate it you have to press a
