@@ -85,7 +85,7 @@ column is in `instance.class` format.
 
 ### How can I help the project?
 
-Report bugs and request features via [issue tracking system](http://code.google.com/p/xatk/issues/list).
+Report bugs and request features via [issue tracking system](https://github.com/vlevit/xatk/issues).
 
 Make a screencast.
 
