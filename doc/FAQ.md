@@ -8,7 +8,7 @@ should work fine with window managers that support such hints. Metacity/Mutter,
 KWin, Compiz, Openbox, Awesome have been reported to work with xatk. Share your
 experience with us via [issue tracking system](https://github.com/vlevit/xatk/issues).
 
-## Customizing
+## Customization
 
 All customizations are done by modifying xatk's configuration file
 `~/.xatk/xatkrc`. Before making any changes ensure that xatk is not running.

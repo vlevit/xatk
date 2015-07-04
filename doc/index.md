@@ -18,21 +18,19 @@ First, create the default configuration file:
     xatk --print-defaults > ~/.xatk/xatkrc
 
 Then open `~/.xatk/xatkrc` and make changes. The most interesting
-option is `prefix`, which is set to Super (Windows) by default. This
+option is `prefix` which is set to Super (Windows) by default. This
 means that all keyboard shortcuts will start with Super modifier. You
-can define any modifier you like, or even combination of modifiers and
-keys. Most other options are for fine-tuning and it is not necessary
-to learn them all. Look at the comment blocks in the default
-configuration file if you want to learn more.
+can define any modifier you like or even combination of modifiers and
+keys. Look at the comment blocks in the default configuration file for
+more customization options.
 
 When you get ready with configuration, you can start xatk by running
 it with no arguments:
 
     xatk
 
-If no error occurr you will notice that window titles contain
-shortcuts they are bound to. To activate a window you can press
-`prefix+shortcut`.
+If no error occurr you will be able to notice shortcuts in window
+titles. To activate a specific window press `prefix + shortcut`.
 
 If you want to exit the program run:
 
