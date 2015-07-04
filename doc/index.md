@@ -51,7 +51,7 @@ tools to add programs to startup.
 
 For more information look at [Read the Docs pages](http://xatk.readthedocs.org/en/latest/):
 
- * [FAQ](FAQ.md)
- * [Troubleshooting](Troubleshooting.md)
- * [How it works](HowItWorks.md)
- * [Roadmap](Roadmap.md).
+ * [FAQ](http://xatk.readthedocs.org/en/latest/FAQ/)
+ * [Troubleshooting](http://xatk.readthedocs.org/en/latest/Troubleshooting/)
+ * [How it works](http://xatk.readthedocs.org/en/latest/HowItWorks/)
+ * [Roadmap](http://xatk.readthedocs.org/en/latest/Roadmap/).
