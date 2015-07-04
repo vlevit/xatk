@@ -1,0 +1,7 @@
+site_name: xatk
+pages:
+  - Home: index.md
+  - FAQ: FAQ.md
+  - Troubleshooting: Troubleshooting.md
+  - How It Works: HowItWorks.md
+  - Roadmap: Roadmap.md
