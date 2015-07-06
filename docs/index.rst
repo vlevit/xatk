@@ -74,4 +74,5 @@ blocks in `~/.xatk/xatkrc`. For other information look at links below.
 
    HowItWorks
    FAQ
+   Troubleshooting
    Roadmap
