@@ -1,4 +1,19 @@
 .. -*- mode: rst; -*-
+xatk 0.2.0 - 07 June 2015
+--------------------------
+
+Features:
+
+ * add ability to run commands (run or raise behavior)
+ * prevent runnig more than one xatk instance
+ * add --kill option to stop a running xatk instance
+ * move the project from Google Code to Github
+
+Bug fixes:
+
+ * handle more BadWindow exceptions which could occur rarely
+ * avoid xatkrc breakage by not writing empty history element values
+
 
 xatk 0.1.0 - 11 March 2012
 --------------------------
