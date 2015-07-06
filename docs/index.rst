@@ -2,7 +2,7 @@ Welcome to xatk's documentation
 ================================
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
    index
 
@@ -12,7 +12,7 @@ binds windows to keyboard shortcuts, so it is possible to reach any
 window with one or a few keystrokes.
 
 Installation
-============
+~~~~~~~~~~~~
 
 xatk is a single python file program that you can put in any directory
 defined in the PATH environment variable. To run xatk you should have
@@ -20,7 +20,7 @@ defined in the PATH environment variable. To run xatk you should have
 `python-xlib <http://python-xlib.sourceforge.net/>`__ installed.
 
 Running
-=======
+~~~~~~~
 
 Before running xatk you may want to change some configuration options.
 First, create the default configuration file:
@@ -56,7 +56,7 @@ If you want to exit the program run:
 It's the same as kill xatk with SIGTERM. It's safe.
 
 Autostart
-=========
+~~~~~~~~~
 
 If you use GDM or KDM, you can add ``xatk`` to ``~/.xprofile``. If you
 use ``startx`` or ``xinit`` you can add ``xatk`` to ``~/.xinitirc``
@@ -64,7 +64,7 @@ before line ``exec window-manager``. Also GNOME, KDE and Xfce have
 dedicated GUI tools to add programs to startup.
 
 More Info
-=========
+~~~~~~~~~
 
 For more information on configuration options look at the comment
 blocks in `~/.xatk/xatkrc`. For other information look at links below.
