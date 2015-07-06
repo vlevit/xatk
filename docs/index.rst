@@ -67,7 +67,8 @@ More Info
 ~~~~~~~~~
 
 For more information on configuration options look at the comment
-blocks in `~/.xatk/xatkrc`. For other information look at links below.
+blocks in `~/.xatk/xatkrc`. For other information look at the links
+below.
 
 .. toctree::
    :maxdepth: 2

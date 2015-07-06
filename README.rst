@@ -3,5 +3,5 @@ xatk
 
 xatk is a keyboard-driven window switcher for X11.
 
-Access the online documentation at `Read the Docs
+Learn more on `xatk's Read the Docs page
 <http://xatk.readthedocs.org/en/latest/>`__.
