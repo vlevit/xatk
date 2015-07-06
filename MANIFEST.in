@@ -1,0 +1,9 @@
+include README.rst
+include LICENSE
+include MANIFEST.in
+recursive-include docs *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * ~
+prune docs/_build
+prune xatk.egg-info
