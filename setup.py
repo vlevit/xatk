@@ -11,15 +11,16 @@ setup(
     version='0.2.0',
     packages = [],
     include_package_data=True,
-    scripts = ['xatk'],
-
+    zip_safe=False,
+    scripts = [
+        'xatk'
+    ],
     install_requires = [
         "python-xlib>=0.15rc1"
     ],
     dependency_links = [
         'http://downloads.sourceforge.net/project/python-xlib/python-xlib/0.15rc1/python-xlib-0.15rc1.tar.gz'
     ],
-
     # metadata for upload to PyPI
     author = 'Vyacheslav Levit',
     author_email = 'dev@vlevit.org',
