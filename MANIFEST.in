@@ -1,3 +1,4 @@
+include xatk
 include README.rst
 include LICENSE
 include MANIFEST.in
