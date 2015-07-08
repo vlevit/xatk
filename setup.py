@@ -12,6 +12,7 @@ setup(
     packages = [],
     include_package_data=True,
     zip_safe=False,
+    platforms=['linux', 'freebsd', 'openbsd', 'netbsd'],
     scripts = [
         'xatk'
     ],
