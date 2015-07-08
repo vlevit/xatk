@@ -7,17 +7,22 @@ Welcome to xatk's documentation
    index
 
 
-**xatk** is a keyboard-driven window switcher for X11. It dynamically
+xatk__ is a keyboard-driven window switcher for X11. It dynamically
 binds windows to keyboard shortcuts, so it is possible to reach any
 window with one or a few keystrokes.
+
+__ https://github.com/vlevit/xatk
 
 Installation
 ~~~~~~~~~~~~
 
-xatk is a single python file program that you can put in any directory
-defined in the PATH environment variable. To run xatk you should have
-`python 2 (>= 2.7) <http://www.python.org>`__ and
-`python-xlib <http://python-xlib.sourceforge.net/>`__ installed.
+xatk is a `single python file`__ program that you can put in any
+directory defined in the PATH environment variable. To run xatk you
+should have `python 2 (>= 2.7)`__ and `python-xlib`__ installed.
+
+__ https://raw.githubusercontent.com/vlevit/xatk/master/xatk
+__ http://www.python.org
+__ http://python-xlib.sourceforge.net/
 
 Running
 ~~~~~~~
