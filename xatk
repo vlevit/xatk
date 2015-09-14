@@ -1497,7 +1497,11 @@ class Xtool(object):
         prop = Xtool._get_full_property(win, Xtool._atom('_NET_WM_NAME'),
                                         Xtool._atom('UTF8_STRING'))
         if prop:
-            return prop.value.decode('utf-8', 'ignore_log')
+            # with Python 3 port property values can now also be unicode
+            if isinstance(prop.value, unicode):
+                return prop.value
+            else:
+                return prop.value.decode('utf-8', 'ignore_log')
         else:
             prop = Xtool._get_full_property(win, Xatom.WM_NAME,
                                             Xatom.STRING)
