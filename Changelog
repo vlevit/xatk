@@ -1,6 +1,14 @@
 .. -*- mode: rst; -*-
+xatk 0.2.1 - 14 Sep 2015
+------------------------
+
+Bug fix:
+
+ * add support for python-xlib patched with python3 support (Debian,
+   Ubuntu)
+
 xatk 0.2.0 - 08 July 2015
---------------------------
+-------------------------
 
 Features:
 
