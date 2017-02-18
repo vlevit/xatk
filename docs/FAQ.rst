@@ -21,7 +21,7 @@ running.
 How to assign keybindings to the certain windows permanently?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Crate a rule and prefix awn with !. For example,
+Create a rule and prefix awn with !. For example,
 
 ::
 
