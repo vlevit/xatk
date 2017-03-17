@@ -50,7 +50,7 @@ else:
 
 
 PROG_NAME = os.path.basename(sys.argv[0])
-VERSION = (0, 2, 0)
+VERSION = (0, 2, 2)
 CONFIG_PATH = ('~/.xatkrc', '~/.xatk/xatkrc')
 CONFIG_DIR = os.path.expanduser("~/.xatk")
 LOCK_PATH = os.path.join(CONFIG_DIR, "lock")

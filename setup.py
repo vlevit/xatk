@@ -14,7 +14,7 @@ def read(name):
 
 setup(
     name='xatk',
-    version='0.2.1',
+    version='0.2.2',
     packages=[],
     include_package_data=True,
     zip_safe=False,
