@@ -1,4 +1,10 @@
 from setuptools import setup
+from setuptools.dist import Distribution
+
+
+class PureDistribution(Distribution):
+    def is_pure(self):
+        return True
 
 
 def read(name):
@@ -8,7 +14,7 @@ def read(name):
 
 setup(
     name='xatk',
-    version='0.2.0',
+    version='0.2.1',
     packages=[],
     include_package_data=True,
     zip_safe=False,
@@ -19,16 +25,13 @@ setup(
     install_requires=[
         "python-xlib>=0.15rc1"
     ],
-    dependency_links=[
-        'http://downloads.sourceforge.net/project/python-xlib/python-xlib/0.15rc1/python-xlib-0.15rc1.tar.gz'
-    ],
     # metadata for upload to PyPI
     author='Vyacheslav Levit',
     author_email='dev@vlevit.org',
     description='keyboard-driven window switcher for X11',
     long_description=read('README.rst'),
     license='GPL',
-    keywords='X11 keyboard window',
+    keywords='X11 keyboard windows',
     url='http://github.com/vlevit/xatk/',
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -39,5 +42,6 @@ setup(
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
         'Topic :: Desktop Environment :: Window Managers'
-    ]
+    ],
+    distclass=PureDistribution,
 )

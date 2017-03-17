@@ -2,6 +2,7 @@ include xatk
 include README.rst
 include LICENSE
 include MANIFEST.in
+include Changelog
 recursive-include docs *
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
