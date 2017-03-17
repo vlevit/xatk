@@ -20,9 +20,15 @@ xatk is a `single python file`__ program that you can put in any
 directory defined in the PATH environment variable. To run xatk you
 should have `python 2 (>= 2.7)`__ and `python-xlib`__ installed.
 
+Alternatively you can install xatk with pip (python2 version):
+
+.. code:: bash
+
+    $ pip install xatk
+
 __ https://raw.githubusercontent.com/vlevit/xatk/master/xatk
 __ http://www.python.org
-__ http://python-xlib.sourceforge.net/
+__ https://github.com/python-xlib/python-xlib
 
 Running
 ~~~~~~~
